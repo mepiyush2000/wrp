@@ -319,7 +319,7 @@ def plot_path(grid, path, start=None):
     plt.show()
 
 
-def plot_visibility(grid, path, gen_module, unseen=False):
+def plot_visibility(grid, path, unseen=False):
     visibility = get_LOS4_visibility_map(grid, path)
 
     if unseen:
