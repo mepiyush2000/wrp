@@ -121,6 +121,321 @@ def get_LOS4_visibility_map(grid, loc_list):
             
         return visibility
 
+
+def greedy_max_visibility_path(grid, start, max_steps=500, verbose=False):
+    """Greedy algorithm that always moves to the neighbor that reveals the most unseen cells.
+    
+    Args:
+        grid: numpy array where 0=free, 1=obstacle
+        start: tuple (row, col) starting position
+        max_steps: maximum number of steps to prevent infinite loops
+        verbose: print debug information
+        
+    Returns:
+        path: list of (row, col) tuples representing the path
+    """
+    H, W = grid.shape
+    path = [start]
+    current_cell = start
+    visited_counts = np.zeros((H, W), dtype=int)
+    visited_counts[start[0], start[1]] = 1
+    
+    # Get initial visibility
+    visibility = get_LOS4_visibility_map(grid, path)
+    free_space = (grid == 0)
+    total_free_cells = np.sum(free_space)
+    
+    for step in range(max_steps):
+        # Check if all free cells are visible
+        unseen_free_cells = free_space & (~visibility)
+        num_unseen = np.sum(unseen_free_cells)
+        
+        if num_unseen == 0:
+            if verbose:
+                print(f"All cells covered in {step} steps! Path length: {len(path)}")
+            break
+        
+        # Evaluate all 4 neighboring directions
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        best_next_cell = None
+        max_new_cells_revealed = -1
+        
+        r, c = current_cell
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            
+            # Check if the move is valid (within bounds and not an obstacle)
+            if not (0 <= nr < H and 0 <= nc < W and grid[nr, nc] == 0):
+                continue
+            
+            # Simulate moving to this cell and calculate new visibility
+            test_path = path + [(nr, nc)]
+            new_visibility = get_LOS4_visibility_map(grid, test_path)
+            
+            # Count how many NEW cells would be revealed
+            newly_revealed = new_visibility & (~visibility)
+            num_newly_revealed = np.sum(newly_revealed)
+            
+            # Add penalty for revisiting cells to encourage exploration
+            revisit_penalty = visited_counts[nr, nc] * 0.5
+            score = num_newly_revealed - revisit_penalty
+            
+            if score > max_new_cells_revealed:
+                max_new_cells_revealed = score
+                best_next_cell = (nr, nc)
+        
+        # If no valid moves found, we're trapped
+        if best_next_cell is None:
+            if verbose:
+                print(f"Trapped at step {step}! No valid moves. Covered {np.sum(visibility & free_space)}/{total_free_cells} free cells.")
+            break
+        
+        # Make the move
+        path.append(best_next_cell)
+        current_cell = best_next_cell
+        visited_counts[current_cell[0], current_cell[1]] += 1
+        
+        # Update visibility with the new path
+        visibility = get_LOS4_visibility_map(grid, path)
+        
+        if verbose and step % 10 == 0:
+            print(f"Step {step}: at {current_cell}, revealed {np.sum(visibility & free_space)}/{total_free_cells} cells")
+    
+    return path
+
+
+def stochastic_visibility_path(grid, start, max_steps=500, temperature=1.0, verbose=False):
+    """Stochastic greedy algorithm that samples directions proportional to visibility gains.
+    
+    Instead of always picking the best direction, this samples from a probability
+    distribution where P(direction) ∝ (number of new cells revealed).
+    
+    Args:
+        grid: numpy array where 0=free, 1=obstacle
+        start: tuple (row, col) starting position
+        max_steps: maximum number of steps
+        temperature: controls randomness (higher = more random, lower = more greedy)
+        verbose: print debug information
+        
+    Returns:
+        path: list of (row, col) tuples representing the path
+    """
+    H, W = grid.shape
+    path = [start]
+    current_cell = start
+    visited_counts = np.zeros((H, W), dtype=int)
+    visited_counts[start[0], start[1]] = 1
+    
+    # Get initial visibility
+    visibility = get_LOS4_visibility_map(grid, path)
+    free_space = (grid == 0)
+    total_free_cells = np.sum(free_space)
+    
+    for step in range(max_steps):
+        # Check if all free cells are visible
+        unseen_free_cells = free_space & (~visibility)
+        num_unseen = np.sum(unseen_free_cells)
+        
+        if num_unseen == 0:
+            if verbose:
+                print(f"All cells covered in {step} steps! Path length: {len(path)}")
+            break
+        
+        # Evaluate all 4 neighboring directions
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        valid_moves = []
+        visibility_scores = []
+        
+        r, c = current_cell
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            
+            # Check if the move is valid
+            if not (0 <= nr < H and 0 <= nc < W and grid[nr, nc] == 0):
+                continue
+            
+            # Simulate moving to this cell and calculate new visibility
+            test_path = path + [(nr, nc)]
+            new_visibility = get_LOS4_visibility_map(grid, test_path)
+            
+            # Count how many NEW cells would be revealed
+            newly_revealed = new_visibility & (~visibility)
+            num_newly_revealed = np.sum(newly_revealed)
+            
+            # Score with small penalty for revisiting
+            revisit_penalty = visited_counts[nr, nc] * 0.3
+            score = max(num_newly_revealed - revisit_penalty, 0.1)  # Minimum score to avoid zero probability
+            
+            valid_moves.append((nr, nc))
+            visibility_scores.append(score)
+        
+        # If no valid moves, we're trapped
+        if not valid_moves:
+            if verbose:
+                print(f"Trapped at step {step}! No valid moves.")
+            break
+        
+        # Convert scores to probabilities with temperature
+        scores_array = np.array(visibility_scores)
+        # Apply temperature: lower temperature = more greedy, higher = more random
+        exp_scores = np.exp(scores_array / temperature)
+        probabilities = exp_scores / np.sum(exp_scores)
+        
+        # Sample next move based on probabilities
+        chosen_idx = np.random.choice(len(valid_moves), p=probabilities)
+        best_next_cell = valid_moves[chosen_idx]
+        
+        # Make the move
+        path.append(best_next_cell)
+        current_cell = best_next_cell
+        visited_counts[current_cell[0], current_cell[1]] += 1
+        
+        # Update visibility
+        visibility = get_LOS4_visibility_map(grid, path)
+        
+        if verbose and step % 10 == 0:
+            print(f"Step {step}: at {current_cell}, revealed {np.sum(visibility & free_space)}/{total_free_cells} cells")
+    
+    return path
+
+
+def visibility_guided_search(grid, start, max_expansions=25000, lambda_weight=2.0, verbose=False):
+    """A* search guided by visibility gains instead of neural network predictions.
+    
+    Simplified version that avoids state space explosion by tracking physical steps
+    rather than complete visibility sets.
+    
+    Args:
+        grid: numpy array where 0=free, 1=obstacle
+        start: tuple (row, col) starting position
+        max_expansions: maximum number of nodes to expand
+        lambda_weight: weight for the visibility gain in edge cost calculation
+        verbose: print debug information
+        
+    Returns:
+        path: list of (row, col) tuples representing the solution path
+    """
+    import heapq
+    
+    H, W = grid.shape
+    free_space = set((r, c) for r in range(H) for c in range(W) if grid[r, c] == 0)
+    
+    # Get initial visibility
+    init_vis = get_LOS4_visibility_map(grid, [start])
+    init_seen = set((r, c) for r in range(H) for c in range(W) if init_vis[r, c] == 1)
+    init_unseen = frozenset(free_space - init_seen)
+    
+    if not init_unseen:
+        return [start]
+    
+    # Priority queue: (f_score, tie_breaker, g, current_cell, path, unseen_set)
+    pq = []
+    tie_breaker = 0
+    heapq.heappush(pq, (0.0, tie_breaker, 0, start, [start], init_unseen))
+    
+    # Track best g (path length) to each state to avoid re-processing
+    visited = {(start, init_unseen): 0}
+    
+    expansions = 0
+    best_path = [start]
+    best_unseen_count = len(init_unseen)
+    
+    while pq:
+        f_score, _, g, current_cell, path, unseen_set = heapq.heappop(pq)
+        
+        # CRITICAL FIX: Skip if we've already processed this state with a better path
+        state_key = (current_cell, unseen_set)
+        if state_key in visited and visited[state_key] < g:
+            continue  # Already found a better path to this state
+        
+        expansions += 1
+        
+        # Track best path found so far
+        if len(unseen_set) < best_unseen_count:
+            best_unseen_count = len(unseen_set)
+            best_path = path
+            if verbose:
+                print(f"Expansion {expansions}: Found path with {len(unseen_set)} unseen cells, path length {g}")
+        
+        # Check termination conditions
+        if expansions > max_expansions:
+            # if verbose:
+            print(f"Hit max expansions ({max_expansions}). Returning best path with {best_unseen_count} unseen cells.")
+            return [start] * 101  # Return dummy path to indicate failure
+        
+        if len(unseen_set) == 0:
+            if verbose:
+                print(f"Goal reached! Path length: {g}, Nodes expanded: {expansions}")
+            return path
+        
+        # Get current visibility
+        current_vis = get_LOS4_visibility_map(grid, path)
+        
+        # Explore all 4 directions
+        r, c = current_cell
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        
+        # Calculate visibility gains for all valid moves
+        visibility_gains = []
+        valid_moves = []
+        
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            
+            if 0 <= nr < H and 0 <= nc < W and grid[nr, nc] == 0:
+                next_cell = (nr, nc)
+                new_path = path + [next_cell]
+                
+                # Calculate new visibility
+                new_vis = get_LOS4_visibility_map(grid, new_path)
+                newly_revealed = new_vis & (~current_vis)
+                num_newly_revealed = np.sum(newly_revealed)
+                
+                visibility_gains.append(num_newly_revealed + 1)  # +1 to avoid zero probability
+                valid_moves.append((next_cell, new_path, new_vis))
+        
+        if not valid_moves:
+            continue  # No valid moves, backtrack
+        
+        # Add neighbors to priority queue
+        total_gain = sum(visibility_gains)
+        for (next_cell, new_path, new_vis), vis_gain in zip(valid_moves, visibility_gains):
+            new_g = g + 1
+            new_seen = set((vr, vc) for vr in range(H) for vc in range(W) if new_vis[vr, vc] == 1)
+            new_unseen = frozenset(free_space - new_seen)
+            new_state = (next_cell, new_unseen)
+            
+            # Only add if we haven't found a better path to this state
+            if new_state not in visited or new_g < visited[new_state]:
+                visited[new_state] = new_g
+                
+                # --- NEW FIX: Gravitational Pull to the Fog ---
+                if new_unseen:
+                    # Find the Manhattan distance to the absolutely closest unseen cell
+                    min_dist = min(abs(next_cell[0] - ur) + abs(next_cell[1] - uc) for ur, uc in new_unseen)
+                else:
+                    min_dist = 0
+                
+                # 1. Base Heuristic: How much total fog is left?
+                h_fog_amount = len(new_unseen) * 0.5 
+                
+                # 2. Directional Heuristic: How far are we from the nearest fog?
+                h_distance = min_dist * 1.0 
+                
+                # 3. The Immediate Reward: Did we actually reveal anything this step?
+                visibility_reward = lambda_weight * np.log(vis_gain)
+                
+                # 4. Total A* Priority Score
+                new_f = new_g + h_fog_amount + h_distance - visibility_reward
+                
+                tie_breaker += 1
+                heapq.heappush(pq, (new_f, tie_breaker, new_g, next_cell, new_path, new_unseen))
+    
+    if verbose:
+        print(f"Search exhausted. Returning best path with {best_unseen_count} unseen cells.")
+    return best_path
+
+
 def get_path_from_y_labels(y_labels):
     """Converts a sequence of one-hot encoded maps into a path."""
     path = []
@@ -135,6 +450,8 @@ def get_path_from_y_labels(y_labels):
     return path
 
 
+
+## Data Creators Savers Utils
 def save_data_to_disk(x, y, file_path="wrp_dataset.pt", to_cpu=True):
     """Save dataset tensors to disk using torch.save.
 
