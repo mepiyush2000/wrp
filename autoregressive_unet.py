@@ -55,6 +55,10 @@ class ResidualConv(nn.Module):
 class UNet16x16(nn.Module):
     def __init__(self, in_channels=3, out_channels=1):
         super().__init__()
+        # Expected input channels: 3
+        #   - Channel 0: grid map (obstacles=1, free=0)
+        #   - Channel 1: current position (one-hot)
+        #   - Channel 2: unseen map (not yet visible=1)
         
         # We add +2 to in_channels to account for the generated X and Y coordinate channels
         self.inc = ResidualConv(in_channels + 2, 64)

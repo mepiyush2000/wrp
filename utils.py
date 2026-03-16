@@ -489,11 +489,12 @@ def save_data_to_disk(x, y, file_path="wrp_dataset.pt", to_cpu=True):
     return file_path
 
 
-def load_data_from_disk(file_path, device=None):
+def load_data_from_disk(file_path, sample = 1, device=None):
     """Load dataset tensors saved by save_data_to_disk.
 
     Args:
         file_path: Path to .pt file
+        sample: Fraction of data to load (0 < sample <= 1)
         device: Optional device (e.g., DEVICE) to move tensors
     Returns:
         X, y tensors
@@ -518,6 +519,10 @@ def load_data_from_disk(file_path, device=None):
     if device is not None:
         X = X.to(device)
         y = y.to(device)
+    if sample < 1.0:
+        num_samples = int(X.size(0) * sample)
+        X = X[:num_samples]
+        y = y[:num_samples] 
 
     print(f"Loaded {X.size(0)} samples from {file_path}")
     print(f"X shape: {tuple(X.shape)} | y shape: {tuple(y.shape)}")

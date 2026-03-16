@@ -62,7 +62,8 @@ class WRPSolverTSPJF:
 
     def _get_maximal_los_disjoint_pivots(self, unseen):
         """Finds a maximal set of pivots that cannot see each other."""
-        sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]))
+        # sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]))
+        sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]), reverse=True)
         pivots = []
         for c in sorted_unseen:
             is_disjoint = True
