@@ -672,3 +672,164 @@ def plot_output_tensor(output_tensor):
     plt.yticks(np.arange(-0.5, output_tensor.shape[0], 1))
     plt.title('Model Output Heatmap')
     plt.show()
+
+
+
+## Polygon Refactor to Grid
+
+from collections import deque
+from heapq import heappop, heappush
+from PIL import Image, ImageDraw
+
+def _connected_components(free_mask):
+    rows, cols = free_mask.shape
+    seen = np.zeros_like(free_mask, dtype=bool)
+    components = []
+
+    for row in range(rows):
+        for col in range(cols):
+            if not free_mask[row, col] or seen[row, col]:
+                continue
+            queue = deque([(row, col)])
+            seen[row, col] = True
+            component = []
+
+            while queue:
+                curr_row, curr_col = queue.popleft()
+                component.append((curr_row, curr_col))
+                for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    next_row, next_col = curr_row + d_row, curr_col + d_col
+                    if 0 <= next_row < rows and 0 <= next_col < cols and free_mask[next_row, next_col] and not seen[next_row, next_col]:
+                        seen[next_row, next_col] = True
+                        queue.append((next_row, next_col))
+
+            components.append(component)
+
+    return sorted(components, key=len, reverse=True)
+
+def _shortest_bridge_path(cost_grid, source_cells, target_cells):
+    rows, cols = cost_grid.shape
+    target_set = set(target_cells)
+    heap = []
+    best_cost = {}
+    parent = {}
+
+    for row, col in source_cells:
+        best_cost[(row, col)] = 0.0
+        parent[(row, col)] = None
+        heappush(heap, (0.0, row, col))
+
+    while heap:
+        curr_cost, row, col = heappop(heap)
+        if curr_cost > best_cost[(row, col)]:
+            continue
+        if (row, col) in target_set:
+            path = []
+            node = (row, col)
+            while node is not None:
+                path.append(node)
+                node = parent[node]
+            path.reverse()
+            return path, curr_cost
+
+        for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            next_row, next_col = row + d_row, col + d_col
+            if not (0 <= next_row < rows and 0 <= next_col < cols):
+                continue
+            next_cost = curr_cost + cost_grid[next_row, next_col]
+            next_node = (next_row, next_col)
+            if next_cost < best_cost.get(next_node, float('inf')):
+                best_cost[next_node] = next_cost
+                parent[next_node] = (row, col)
+                heappush(heap, (next_cost, next_row, next_col))
+
+    raise RuntimeError('Could not connect free-space components')
+
+def _enforce_free_space_connectivity(grid, coverage):
+    connected_grid = grid.copy()
+    free_mask = connected_grid == 0
+    components = _connected_components(free_mask)
+    if len(components) <= 1:
+        return connected_grid
+
+    cost_grid = np.where(connected_grid == 0, 0.0, 1.0 - coverage + 1e-6)
+
+    while len(components) > 1:
+        base_component = components[0]
+        best_path = None
+        best_path_cost = float('inf')
+
+        for other_component in components[1:]:
+            path, path_cost = _shortest_bridge_path(cost_grid, base_component, other_component)
+            if path_cost < best_path_cost:
+                best_path = path
+                best_path_cost = path_cost
+
+        for row, col in best_path:
+            connected_grid[row, col] = 0
+            cost_grid[row, col] = 0.0
+
+        free_mask = connected_grid == 0
+        components = _connected_components(free_mask)
+
+    return connected_grid
+
+def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per_cell=4, padding_frac=0.08, ensure_connected=True):
+    shell = np.asarray(shell, dtype=float)
+    if shell.ndim != 2 or shell.shape[1] != 2:
+        raise ValueError('shell must have shape (N, 2)')
+    if len(shell) < 3:
+        raise ValueError('shell must contain at least 3 vertices')
+
+    holes = [] if holes is None else [np.asarray(h, dtype=float) for h in holes]
+    all_xy = np.vstack([shell] + [hole for hole in holes if len(hole) > 0])
+
+    xmin, ymin = all_xy.min(axis=0)
+    xmax, ymax = all_xy.max(axis=0)
+    width = max(xmax - xmin, 1e-9)
+    height = max(ymax - ymin, 1e-9)
+
+    rows, cols = grid_shape
+    grid_aspect = cols / rows
+    bbox_aspect = width / height
+
+    if bbox_aspect > grid_aspect:
+        pad = 0.5 * (width / grid_aspect - height)
+        ymin -= pad
+        ymax += pad
+    else:
+        pad = 0.5 * (height * grid_aspect - width)
+        xmin -= pad
+        xmax += pad
+
+    span_x, span_y = xmax - xmin, ymax - ymin
+    xmin -= padding_frac * span_x
+    xmax += padding_frac * span_x
+    ymin -= padding_frac * span_y
+    ymax += padding_frac * span_y
+
+    scale = max(4, samples_per_cell)
+    img_w, img_h = cols * scale, rows * scale
+
+    def world_to_px(point):
+        px = (point[0] - xmin) / (xmax - xmin) * img_w
+        py = (ymax - point[1]) / (ymax - ymin) * img_h
+        return (px, py)
+
+    image = Image.new('L', (img_w, img_h), 0)
+    draw = ImageDraw.Draw(image)
+    draw.polygon([world_to_px(vertex) for vertex in shell], fill=255)
+
+    for hole in holes:
+        if len(hole) >= 3:
+            draw.polygon([world_to_px(vertex) for vertex in hole], fill=0)
+
+    raster = np.array(image, dtype=float)
+    coverage = raster.reshape(rows, scale, cols, scale).mean(axis=(1, 3)) / 255.0
+    grid = np.where(coverage >= 0.5, 0, 1).astype(np.uint8)
+
+    if ensure_connected:
+        grid = _enforce_free_space_connectivity(grid, coverage)
+
+    extent = (xmin, xmax, ymin, ymax)
+    return grid, extent, coverage

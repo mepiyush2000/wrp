@@ -20,6 +20,7 @@ class AttentionBlock(nn.Module):
             nn.Sigmoid()
         )
         self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(p=0.1)  # Optional dropout for regularization
         
     def forward(self, g, x):
         g1 = self.W_g(g)
@@ -30,12 +31,13 @@ class AttentionBlock(nn.Module):
 
 class ResidualConv(nn.Module):
     """Replaces DoubleConv with a ResNet-style block to preserve crisp grid boundaries."""
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout_p=0.0):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        self.dropout = nn.Dropout2d(p=dropout_p)
         
         # Shortcut connection to match dimensions if they change
         self.shortcut = nn.Sequential()
@@ -48,12 +50,13 @@ class ResidualConv(nn.Module):
     def forward(self, x):
         res = self.shortcut(x)
         out = F.relu(self.bn1(self.conv1(x)))
+        out = self.dropout(out)
         out = self.bn2(self.conv2(out))
         out += res  # Add the residual identity
         return F.relu(out)
 
 class UNet16x16(nn.Module):
-    def __init__(self, in_channels=3, out_channels=1):
+    def __init__(self, in_channels=3, out_channels=1, dropout_p=0.2):
         super().__init__()
         # Expected input channels: 3
         #   - Channel 0: grid map (obstacles=1, free=0)
@@ -65,12 +68,12 @@ class UNet16x16(nn.Module):
         
         # Encoder
         self.down1 = nn.Sequential(nn.MaxPool2d(2), ResidualConv(64, 128))
-        self.down2 = nn.Sequential(nn.MaxPool2d(2), ResidualConv(128, 256))
+        self.down2 = nn.Sequential(nn.MaxPool2d(2), ResidualConv(128, 256, dropout_p=dropout_p))
         
         # Decoder
         self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
         self.att2 = AttentionBlock(F_g=128, F_l=128, F_int=64)
-        self.conv2 = ResidualConv(256, 128)
+        self.conv2 = ResidualConv(256, 128, dropout_p=dropout_p)
         
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
         self.att1 = AttentionBlock(F_g=64, F_l=64, F_int=32)
