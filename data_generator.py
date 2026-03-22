@@ -1,5 +1,8 @@
 import torch
 from tqdm import tqdm
+from collections import deque
+from heapq import heappop, heappush
+from PIL import Image, ImageDraw
 from grid_generator import *
 from wrp_solver_opt import *
 from utils import *
@@ -79,38 +82,101 @@ def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout
 
 ## Utils for polygon to grid conversion
 
-def augment_data(X, y):
-    """Augment training data with all 8 dihedral transforms (4 rotations × 2 flips).
-    
-    Both X (B, C, H, W) and y (B, 1, H, W) are transformed identically
-    so the spatial correspondence is preserved.
-    """
-    augmented_X = [X]
-    augmented_y = [y]
-    
-    # dims=[-2, -1] rotate in the H, W plane
-    for k in range(1, 4):  # 90°, 180°, 270°
-        augmented_X.append(torch.rot90(X, k, dims=[-2, -1]))
-        augmented_y.append(torch.rot90(y, k, dims=[-2, -1]))
-    
-    # Horizontal flip
-    X_flip = torch.flip(X, dims=[-1])
-    y_flip = torch.flip(y, dims=[-1])
-    augmented_X.append(X_flip)
-    augmented_y.append(y_flip)
-    
-    # Horizontal flip + 3 rotations
-    for k in range(1, 4):
-        augmented_X.append(torch.rot90(X_flip, k, dims=[-2, -1]))
-        augmented_y.append(torch.rot90(y_flip, k, dims=[-2, -1]))
-    
-    X_aug = torch.cat(augmented_X, dim=0)
-    y_aug = torch.cat(augmented_y, dim=0)
-    
-    # Shuffle so augmented versions aren't grouped together
-    perm = torch.randperm(X_aug.size(0))
-    return X_aug[perm], y_aug[perm]
+## Polygon Refactor to Grid
 
+
+def _connected_components(free_mask):
+    rows, cols = free_mask.shape
+    seen = np.zeros_like(free_mask, dtype=bool)
+    components = []
+
+    for row in range(rows):
+        for col in range(cols):
+            if not free_mask[row, col] or seen[row, col]:
+                continue
+            queue = deque([(row, col)])
+            seen[row, col] = True
+            component = []
+
+            while queue:
+                curr_row, curr_col = queue.popleft()
+                component.append((curr_row, curr_col))
+                for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    next_row, next_col = curr_row + d_row, curr_col + d_col
+                    if 0 <= next_row < rows and 0 <= next_col < cols and free_mask[next_row, next_col] and not seen[next_row, next_col]:
+                        seen[next_row, next_col] = True
+                        queue.append((next_row, next_col))
+
+            components.append(component)
+
+    return sorted(components, key=len, reverse=True)
+
+def _shortest_bridge_path(cost_grid, source_cells, target_cells):
+    rows, cols = cost_grid.shape
+    target_set = set(target_cells)
+    heap = []
+    best_cost = {}
+    parent = {}
+
+    for row, col in source_cells:
+        best_cost[(row, col)] = 0.0
+        parent[(row, col)] = None
+        heappush(heap, (0.0, row, col))
+
+    while heap:
+        curr_cost, row, col = heappop(heap)
+        if curr_cost > best_cost[(row, col)]:
+            continue
+        if (row, col) in target_set:
+            path = []
+            node = (row, col)
+            while node is not None:
+                path.append(node)
+                node = parent[node]
+            path.reverse()
+            return path, curr_cost
+
+        for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            next_row, next_col = row + d_row, col + d_col
+            if not (0 <= next_row < rows and 0 <= next_col < cols):
+                continue
+            next_cost = curr_cost + cost_grid[next_row, next_col]
+            next_node = (next_row, next_col)
+            if next_cost < best_cost.get(next_node, float('inf')):
+                best_cost[next_node] = next_cost
+                parent[next_node] = (row, col)
+                heappush(heap, (next_cost, next_row, next_col))
+
+    raise RuntimeError('Could not connect free-space components')
+
+def _enforce_free_space_connectivity(grid, coverage):
+    connected_grid = grid.copy()
+    free_mask = connected_grid == 0
+    components = _connected_components(free_mask)
+    if len(components) <= 1:
+        return connected_grid
+
+    cost_grid = np.where(connected_grid == 0, 0.0, 1.0 - coverage + 1e-6)
+
+    while len(components) > 1:
+        base_component = components[0]
+        best_path = None
+        best_path_cost = float('inf')
+
+        for other_component in components[1:]:
+            path, path_cost = _shortest_bridge_path(cost_grid, base_component, other_component)
+            if path_cost < best_path_cost:
+                best_path = path
+                best_path_cost = path_cost
+
+        for row, col in best_path:
+            connected_grid[row, col] = 0
+            cost_grid[row, col] = 0.0
+
+        free_mask = connected_grid == 0
+        components = _connected_components(free_mask)
+
+    return connected_grid
 
 def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per_cell=4, padding_frac=0.08, ensure_connected=True):
     shell = np.asarray(shell, dtype=float)
