@@ -74,3 +74,66 @@ def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout
         print(f"Skipped {skipped}/{num_samples} samples due to timeout ({timeout}s)")
     
     return torch.cat(X_list), torch.cat(y_list)
+
+
+
+## Utils for polygon to grid conversion
+def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per_cell=4, padding_frac=0.08, ensure_connected=True):
+    shell = np.asarray(shell, dtype=float)
+    if shell.ndim != 2 or shell.shape[1] != 2:
+        raise ValueError('shell must have shape (N, 2)')
+    if len(shell) < 3:
+        raise ValueError('shell must contain at least 3 vertices')
+
+    holes = [] if holes is None else [np.asarray(h, dtype=float) for h in holes]
+    all_xy = np.vstack([shell] + [hole for hole in holes if len(hole) > 0])
+
+    xmin, ymin = all_xy.min(axis=0)
+    xmax, ymax = all_xy.max(axis=0)
+    width = max(xmax - xmin, 1e-9)
+    height = max(ymax - ymin, 1e-9)
+
+    rows, cols = grid_shape
+    grid_aspect = cols / rows
+    bbox_aspect = width / height
+
+    if bbox_aspect > grid_aspect:
+        pad = 0.5 * (width / grid_aspect - height)
+        ymin -= pad
+        ymax += pad
+    else:
+        pad = 0.5 * (height * grid_aspect - width)
+        xmin -= pad
+        xmax += pad
+
+    span_x, span_y = xmax - xmin, ymax - ymin
+    xmin -= padding_frac * span_x
+    xmax += padding_frac * span_x
+    ymin -= padding_frac * span_y
+    ymax += padding_frac * span_y
+
+    scale = max(4, samples_per_cell)
+    img_w, img_h = cols * scale, rows * scale
+
+    def world_to_px(point):
+        px = (point[0] - xmin) / (xmax - xmin) * img_w
+        py = (ymax - point[1]) / (ymax - ymin) * img_h
+        return (px, py)
+
+    image = Image.new('L', (img_w, img_h), 0)
+    draw = ImageDraw.Draw(image)
+    draw.polygon([world_to_px(vertex) for vertex in shell], fill=255)
+
+    for hole in holes:
+        if len(hole) >= 3:
+            draw.polygon([world_to_px(vertex) for vertex in hole], fill=0)
+
+    raster = np.array(image, dtype=float)
+    coverage = raster.reshape(rows, scale, cols, scale).mean(axis=(1, 3)) / 255.0
+    grid = np.where(coverage >= 0.5, 0, 1).astype(np.uint8)
+
+    if ensure_connected:
+        grid = _enforce_free_space_connectivity(grid, coverage)
+
+    extent = (xmin, xmax, ymin, ymax)
+    return grid, extent, coverage
