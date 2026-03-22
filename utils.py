@@ -90,7 +90,7 @@ def apply_spatial_smoothing(grid_tensor, target_map, smooth_val=0.2):
                 
     return smoothed_map
 
-def get_LOS4_visibility_map(grid, loc_list):
+def get_LOS4_visibility_map(grid, loc_list, with_last_obstacle=False):
         rows, cols = grid.shape
         visibility = np.zeros((rows, cols), dtype=bool)
         
@@ -98,24 +98,32 @@ def get_LOS4_visibility_map(grid, loc_list):
             # Check up
             for r in range(loc[0], -1, -1):
                 if grid[r, loc[1]] == 1:
+                    if with_last_obstacle:
+                        visibility[r, loc[1]] = True  # Obstacle is visible
                     break
                 visibility[r, loc[1]] = True
             
             # Check down
             for r in range(loc[0], rows):
                 if grid[r, loc[1]] == 1:
+                    if with_last_obstacle:
+                        visibility[r, loc[1]] = True  # Obstacle is visible
                     break
                 visibility[r, loc[1]] = True
             
             # Check left
             for c in range(loc[1], -1, -1):
                 if grid[loc[0], c] == 1:
+                    if with_last_obstacle:
+                        visibility[loc[0], c] = True  # Obstacle is visible
                     break
                 visibility[loc[0], c] = True
             
             # Check right
             for c in range(loc[1], cols):
                 if grid[loc[0], c] == 1:
+                    if with_last_obstacle:
+                        visibility[loc[0], c] = True  # Obstacle is visible
                     break
                 visibility[loc[0], c] = True
             
@@ -527,38 +535,6 @@ def load_data_from_disk(file_path, sample = 1, device=None):
     print(f"Loaded {X.size(0)} samples from {file_path}")
     print(f"X shape: {tuple(X.shape)} | y shape: {tuple(y.shape)}")
     return X, y
-
-def augment_data(X, y):
-    """Augment training data with all 8 dihedral transforms (4 rotations × 2 flips).
-    
-    Both X (B, C, H, W) and y (B, 1, H, W) are transformed identically
-    so the spatial correspondence is preserved.
-    """
-    augmented_X = [X]
-    augmented_y = [y]
-    
-    # dims=[-2, -1] rotate in the H, W plane
-    for k in range(1, 4):  # 90°, 180°, 270°
-        augmented_X.append(torch.rot90(X, k, dims=[-2, -1]))
-        augmented_y.append(torch.rot90(y, k, dims=[-2, -1]))
-    
-    # Horizontal flip
-    X_flip = torch.flip(X, dims=[-1])
-    y_flip = torch.flip(y, dims=[-1])
-    augmented_X.append(X_flip)
-    augmented_y.append(y_flip)
-    
-    # Horizontal flip + 3 rotations
-    for k in range(1, 4):
-        augmented_X.append(torch.rot90(X_flip, k, dims=[-2, -1]))
-        augmented_y.append(torch.rot90(y_flip, k, dims=[-2, -1]))
-    
-    X_aug = torch.cat(augmented_X, dim=0)
-    y_aug = torch.cat(augmented_y, dim=0)
-    
-    # Shuffle so augmented versions aren't grouped together
-    perm = torch.randperm(X_aug.size(0))
-    return X_aug[perm], y_aug[perm]
 
 
 # def remove_spatial_smoothening_from_the_data(data_train):

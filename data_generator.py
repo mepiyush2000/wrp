@@ -78,6 +78,40 @@ def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout
 
 
 ## Utils for polygon to grid conversion
+
+def augment_data(X, y):
+    """Augment training data with all 8 dihedral transforms (4 rotations × 2 flips).
+    
+    Both X (B, C, H, W) and y (B, 1, H, W) are transformed identically
+    so the spatial correspondence is preserved.
+    """
+    augmented_X = [X]
+    augmented_y = [y]
+    
+    # dims=[-2, -1] rotate in the H, W plane
+    for k in range(1, 4):  # 90°, 180°, 270°
+        augmented_X.append(torch.rot90(X, k, dims=[-2, -1]))
+        augmented_y.append(torch.rot90(y, k, dims=[-2, -1]))
+    
+    # Horizontal flip
+    X_flip = torch.flip(X, dims=[-1])
+    y_flip = torch.flip(y, dims=[-1])
+    augmented_X.append(X_flip)
+    augmented_y.append(y_flip)
+    
+    # Horizontal flip + 3 rotations
+    for k in range(1, 4):
+        augmented_X.append(torch.rot90(X_flip, k, dims=[-2, -1]))
+        augmented_y.append(torch.rot90(y_flip, k, dims=[-2, -1]))
+    
+    X_aug = torch.cat(augmented_X, dim=0)
+    y_aug = torch.cat(augmented_y, dim=0)
+    
+    # Shuffle so augmented versions aren't grouped together
+    perm = torch.randperm(X_aug.size(0))
+    return X_aug[perm], y_aug[perm]
+
+
 def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per_cell=4, padding_frac=0.08, ensure_connected=True):
     shell = np.asarray(shell, dtype=float)
     if shell.ndim != 2 or shell.shape[1] != 2:
