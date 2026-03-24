@@ -368,7 +368,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
 
 
 from data_generator import _solve_grid
-def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, timeout=300):
+def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, timeout=300):
     X_list = []
     y_list = []
     skipped = 0
@@ -386,7 +386,7 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
             continue
         
         # Generate training data from the path
-        X, y = generate_training_data_for_online_learning(grid, path_opt)
+        X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step)
         X_list.append(torch.tensor(X, dtype=torch.float32))
         y_list.append(torch.tensor(y, dtype=torch.float32))
     
@@ -395,21 +395,6 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
     
     return torch.cat(X_list), torch.cat(y_list)
 
-import argparse
-if __name__ == "__main__":
-    # Example usage:   
-    argparser = argparse.ArgumentParser(description="Generate training data for WRP online learning")
-    argparser.add_argument("--num_samples", type=int, required=True, help="Number of training samples to generate")
-
-    args = argparser.parse_args()
-    num_samples = args.num_samples
-    grid_size = (16, 16)
-    density = 5
-    timeout = 300
-    
-    X, y = generate_N_training_data_for_online_learning(num_samples, grid_size, density, timeout)
-    print(f"Generated {X.shape[0]} training samples with shape {X.shape[1:]} and labels with shape {y.shape[1:]}")
-    save_data_to_disk(X, y, f"data/wrp_online_frontier_data_16x16_{num_samples}_samples_SP_train.pt")
 
 
 # How to run
