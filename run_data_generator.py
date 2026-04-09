@@ -41,4 +41,4 @@ if __name__ == "__main__":
 
 
 # How to run:
-# python run_data_generator.py --num_samples 1000
+# python run_data_generator.py --split train --type online --discounted_step 0 --num_samples 251
