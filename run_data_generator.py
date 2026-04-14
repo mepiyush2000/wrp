@@ -45,4 +45,4 @@ if __name__ == "__main__":
 # How to run:
 # python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
 #with grazing
-# python run_data_generator.py --split train --type online --discounted_step 10 --num_samples 251 --grazing
+# python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
