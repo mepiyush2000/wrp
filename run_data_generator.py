@@ -15,7 +15,7 @@ if __name__ == "__main__":
     num_samples = args.num_samples
     split = args.split
     data_type = args.type
-    discounted_step = args.discounted_step
+    discounted_step = args.discounted_step # 10
     grid_size = (16, 16)
     density = 5
     timeout = 300

@@ -609,7 +609,7 @@ def plot_grid(grid, start):
     plt.xticks(np.arange(-0.5, grid.shape[1], 1))
     plt.yticks(np.arange(-0.5, grid.shape[0], 1))
     plt.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    plt.show()
+    # plt.show()
 
 
 def plot_path(grid, path, start=None):

@@ -271,8 +271,37 @@ def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per
     return grid, extent, coverage
 
 
+def apply_grazing_los(grid, expanded_los):
+    """
+    Simulates peripheral vision using NumPy array slicing.
+    """
+    # 1. Identify definitive visible floor (boolean mask)
+    visible_floor = (expanded_los == 1) & (grid == 0)
+    
+    # 2. Initialize empty arrays for the 4 directions
+    graze_up    = np.zeros_like(visible_floor)
+    graze_down  = np.zeros_like(visible_floor)
+    graze_left  = np.zeros_like(visible_floor)
+    graze_right = np.zeros_like(visible_floor)
+    
+    # 3. Shift the visible floor arrays (exactly like our dynamic programming code)
+    graze_up[:-1, :]   = visible_floor[1:, :]
+    graze_down[1:, :]  = visible_floor[:-1, :]
+    graze_left[:, :-1] = visible_floor[:, 1:]
+    graze_right[:, 1:] = visible_floor[:, :-1]
+    
+    # 4. Combine all orthogonal shifts to get the "grazed" area
+    grazed_area = visible_floor | graze_up | graze_down | graze_left | graze_right
+    
+    # 5. The Critical Filter: ONLY keep the grazed cells if they are solid walls
+    grazed_walls = grazed_area & (grid == 1)
+    
+    # 6. Merge the original LOS with the newly illuminated wall boundaries
+    final_los = expanded_los | grazed_walls
+    
+    return final_los
 
-def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0):
+def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0, grazing_walls = True):
     """
     Generate training data for online learning by simulating the execution of the offline path and recording the state transitions.
     
@@ -315,6 +344,9 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
         
         # Simulate Line of Sight (LOS) from the current position
         expanded_los = get_LOS4_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True)
+        if grazing_walls:
+            expanded_los = apply_grazing_los(grid, expanded_los)
+
         unseen_map[expanded_los == 1] = 0.0  # This cell has been seen
 
         # 1. Expand the visible free space by 1 pixel to "touch" the adjacent walls
@@ -336,7 +368,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
             y.append(target_tensor)
         else:
             # ---------------------------------------------------------
-            # THE FIX: Discounted Trajectory Heatmap (Comet Tail)
+            # Discounted Trajectory Heatmap (Comet Tail)
             # ---------------------------------------------------------
             target_tensor = np.zeros((1, grid.shape[0], grid.shape[1]), dtype=np.float32)
             
@@ -368,7 +400,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
 
 
 from data_generator import _solve_grid
-def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, timeout=300):
+def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, timeout=300):
     X_list = []
     y_list = []
     skipped = 0
@@ -386,7 +418,7 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
             continue
         
         # Generate training data from the path
-        X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step)
+        X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step, grazing_walls=grazing_walls)
         X_list.append(torch.tensor(X, dtype=torch.float32))
         y_list.append(torch.tensor(y, dtype=torch.float32))
     
