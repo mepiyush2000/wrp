@@ -12,7 +12,7 @@ if __name__ == "__main__":
     argparser.add_argument("--discounted_step", type=int, default=0, help="Number of initial steps to discount in the path for training data generation")
     argparser.add_argument("--grazing", action="store_true", help="Whether to use grazing for data generation (only applicable for online learning)")
     argparser.add_argument("--los_type", type=str, default="los4", choices=["los4", "bresenham", "los8"], help="Type of Line of Sight (LOS) calculation to use for online learning data generation")
-    argparser.add_argument("--vision_radius", type=float, default=np.inf, help="Vision radius for LOS calculations (only applicable for online learning)")
+    argparser.add_argument("--vision_radius", type=int, default=np.inf, help="Vision radius for LOS calculations (only applicable for online learning)")
 
     args = argparser.parse_args()
     num_samples = args.num_samples
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     grazing = args.grazing
     grid_size = (16, 16)
     density = 5
-    timeout = 180
+    timeout = 300
 
     if data_type == "offline":  
         file_path = f"data/wrp_data_16x16_{num_samples}_samples_SP_{split}.pt"
