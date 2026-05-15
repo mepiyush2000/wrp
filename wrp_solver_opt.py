@@ -3,12 +3,19 @@ import random
 import itertools
 from collections import deque
 
+import heapq
+import itertools
+from collections import deque
+
 class WRPSolverTSPJF:
-    def __init__(self, grid, start):
+    # Set default vision_radius to infinity for standard WRP
+    def __init__(self, grid, start, los_type='los4', vision_radius=float('inf')):
         self.grid = grid
         self.rows = len(grid)
         self.cols = len(grid[0])
         self.start = start
+        self.los_type = los_type.lower()
+        self.vision_radius = vision_radius # <-- Store the radius
         self.empty_cells = set()
         
         for r in range(self.rows):
@@ -19,7 +26,14 @@ class WRPSolverTSPJF:
         self.los_table = {}
         self.apsp_table = {}
         
-        self._precompute_los4()
+        # Determine vision directions for raycasting (if not using Bresenham)
+        if self.los_type == 'los8':
+            self.vision_dirs = [(0, 1), (0, -1), (1, 0), (-1, 0), 
+                                (1, 1), (1, -1), (-1, 1), (-1, -1)]
+        elif self.los_type == 'los4':
+            self.vision_dirs = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            
+        self._precompute_los()
         self._precompute_apsp()
 
     def in_bounds(self, r, c):
@@ -28,24 +42,75 @@ class WRPSolverTSPJF:
     def get_neighbors(self, loc):
         r, c = loc
         neighbors = []
+        # Even with Bresenham vision, movement is typically restricted to 4 or 8 ways.
+        # Defaulting to 4-way movement here. Add diagonals if your agent can move diagonally.
         for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nr, nc = r + dr, c + dc
             if self.in_bounds(nr, nc) and self.grid[nr][nc] == 0:
                 neighbors.append((nr, nc))
         return neighbors
 
-    def _precompute_los4(self):
-        """Precomputes the 4-way LOS for every empty cell."""
-        for cell in self.empty_cells:
-            visible = set([cell])
-            r, c = cell
-            for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                nr, nc = r + dr, c + dc
-                while self.in_bounds(nr, nc) and self.grid[nr][nc] == 0:
-                    visible.add((nr, nc))
-                    nr += dr
-                    nc += dc
-            self.los_table[cell] = frozenset(visible)
+    def _bresenham(self, r0, c0, r1, c1):
+        """Yields coordinates on the straight line between (r0, c0) and (r1, c1)."""
+        dy = abs(r1 - r0)
+        dx = abs(c1 - c0)
+        sy = 1 if r0 < r1 else -1
+        sx = 1 if c0 < c1 else -1
+        err = dx - dy
+
+        while True:
+            yield (r0, c0)
+            if r0 == r1 and c0 == c1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                c0 += sx
+            if e2 < dx:
+                err += dx
+                r0 += sy
+
+    def _precompute_los(self):
+        """Precomputes the LOS for every empty cell with an optional radius limit."""
+        if self.los_type == 'bresenham':
+            for cell in self.empty_cells:
+                visible = set()
+                r0, c0 = cell
+                for target in self.empty_cells:
+                    r1, c1 = target
+                    
+                    # 1. Fast Euclidean distance check
+                    dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
+                    if dist > self.vision_radius:
+                        continue # Target is outside the vision circle, skip Bresenham
+                        
+                    has_los = True
+                    # 2. Trace the Bresenham line
+                    for r, c in self._bresenham(r0, c0, r1, c1):
+                        if not self.in_bounds(r, c) or self.grid[r][c] == 1:
+                            has_los = False
+                            break
+                    if has_los:
+                        visible.add(target)
+                self.los_table[cell] = frozenset(visible)
+        else:
+            # Raycasting for LOS4 / LOS8 with radius limit
+            for cell in self.empty_cells:
+                visible = set([cell])
+                r, c = cell
+                for dr, dc in self.vision_dirs:
+                    nr, nc = r + dr, c + dc
+                    current_dist = 1
+                    # Keep moving along the ray as long as we are in bounds, 
+                    # not hitting a wall, and under the radius limit
+                    while (self.in_bounds(nr, nc) and 
+                           self.grid[nr][nc] == 0 and 
+                           current_dist <= self.vision_radius):
+                        visible.add((nr, nc))
+                        nr += dr
+                        nc += dc
+                        current_dist += 1
+                self.los_table[cell] = frozenset(visible)
 
     def _precompute_apsp(self):
         """Precomputes All-Pairs Shortest Path (APSP)."""
@@ -62,7 +127,6 @@ class WRPSolverTSPJF:
 
     def _get_maximal_los_disjoint_pivots(self, unseen):
         """Finds a maximal set of pivots that cannot see each other."""
-        # sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]))
         sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]), reverse=True)
         pivots = []
         for c in sorted_unseen:
@@ -78,17 +142,14 @@ class WRPSolverTSPJF:
     def heuristic_tsp(self, current_loc, unseen):
         """
         Calculates the exact TSP Hamiltonian Path cost to visit all disjoint components.
-        Uses Held-Karp Dynamic Programming for fast exact calculation.
         """
         pivots = self._get_maximal_los_disjoint_pivots(unseen)
         if not pivots:
             return 0
             
-        # Abstract GDLS2: components are AgentCell (idx 0) + Pivots (idx 1 to n)
         components = [current_loc] + pivots
         n = len(components)
         
-        # Build distance matrix
         dist_matrix = [[float('inf')] * n for _ in range(n)]
         
         def min_comp_dist(comp1, comp2):
@@ -111,11 +172,9 @@ class WRPSolverTSPJF:
                     dist_matrix[i][j] = d
                     dist_matrix[j][i] = d
 
-        # Base case for Held-Karp: Only AgentCell and 1 Pivot
         if n == 2:
             return dist_matrix[0][1] if dist_matrix[0][1] != float('inf') else 0
 
-        # Held-Karp TSP formulation for minimum Hamiltonian path starting at 0
         memo = {}
         for i in range(1, n):
             memo[(1 << i, i)] = dist_matrix[0][i]
@@ -138,6 +197,7 @@ class WRPSolverTSPJF:
         min_path_cost = min(memo.get((full_mask, i), float('inf')) for i in range(1, n))
         
         return min_path_cost if min_path_cost != float('inf') else 0
+    
 
 def solve_wrp_tsp_jf(wrp_grid):
     """A* search with Basic Expansion and TSP Heuristic."""

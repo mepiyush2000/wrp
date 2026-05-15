@@ -4,6 +4,7 @@ import torch
 import os
 import multiprocessing as _mp
 import traceback as _tb
+import math
 
 
 def _worker(fn, args, kwargs, result_queue):
@@ -90,45 +91,154 @@ def apply_spatial_smoothing(grid_tensor, target_map, smooth_val=0.2):
                 
     return smoothed_map
 
-def get_LOS4_visibility_map(grid, loc_list, with_last_obstacle=False):
-        rows, cols = grid.shape
-        visibility = np.zeros((rows, cols), dtype=bool)
-        
-        for loc in loc_list:
-            # Check up
-            for r in range(loc[0], -1, -1):
-                if grid[r, loc[1]] == 1:
-                    if with_last_obstacle:
-                        visibility[r, loc[1]] = True  # Obstacle is visible
-                    break
-                visibility[r, loc[1]] = True
-            
-            # Check down
-            for r in range(loc[0], rows):
-                if grid[r, loc[1]] == 1:
-                    if with_last_obstacle:
-                        visibility[r, loc[1]] = True  # Obstacle is visible
-                    break
-                visibility[r, loc[1]] = True
-            
-            # Check left
-            for c in range(loc[1], -1, -1):
-                if grid[loc[0], c] == 1:
-                    if with_last_obstacle:
-                        visibility[loc[0], c] = True  # Obstacle is visible
-                    break
-                visibility[loc[0], c] = True
-            
-            # Check right
-            for c in range(loc[1], cols):
-                if grid[loc[0], c] == 1:
-                    if with_last_obstacle:
-                        visibility[loc[0], c] = True  # Obstacle is visible
-                    break
-                visibility[loc[0], c] = True
-            
-        return visibility
 
+def get_LOS4_visibility_map(grid, loc_list, with_last_obstacle=False, vision_radius=float('inf')):
+    rows, cols = grid.shape
+    visibility = np.zeros((rows, cols), dtype=bool)
+    
+    for loc in loc_list:
+        r0, c0 = loc
+        
+        # Check up
+        for r in range(r0, -1, -1):
+            if abs(r - r0) > vision_radius:
+                break
+            if grid[r, c0] == 1:
+                if with_last_obstacle:
+                    visibility[r, c0] = True  # Obstacle is visible
+                break
+            visibility[r, c0] = True
+        
+        # Check down
+        for r in range(r0, rows):
+            if abs(r - r0) > vision_radius:
+                break
+            if grid[r, c0] == 1:
+                if with_last_obstacle:
+                    visibility[r, c0] = True  # Obstacle is visible
+                break
+            visibility[r, c0] = True
+        
+        # Check left
+        for c in range(c0, -1, -1):
+            if abs(c - c0) > vision_radius:
+                break
+            if grid[r0, c] == 1:
+                if with_last_obstacle:
+                    visibility[r0, c] = True  # Obstacle is visible
+                break
+            visibility[r0, c] = True
+        
+        # Check right
+        for c in range(c0, cols):
+            if abs(c - c0) > vision_radius:
+                break
+            if grid[r0, c] == 1:
+                if with_last_obstacle:
+                    visibility[r0, c] = True  # Obstacle is visible
+                break
+            visibility[r0, c] = True
+            
+    return visibility
+
+
+def get_LOS8_visibility_map(grid, loc_list, with_last_obstacle=False, vision_radius=float('inf')):
+    rows, cols = grid.shape
+    visibility = np.zeros((rows, cols), dtype=bool)
+    
+    for loc in loc_list:
+        r0, c0 = loc
+        
+        # Check 8 directions
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    visibility[r0, c0] = True  # The cell itself is always visible
+                    continue  # Skip the current cell
+                
+                r, c = r0 + dr, c0 + dc
+                while 0 <= r < rows and 0 <= c < cols:
+                    # Calculate Euclidean distance from the origin cell
+                    dist = math.sqrt((r - r0)**2 + (c - c0)**2)
+                    
+                    # If the cell is beyond the vision radius, stop raycasting in this direction
+                    if dist > vision_radius:
+                        break
+                        
+                    if grid[r, c] == 1:
+                        if with_last_obstacle:
+                            visibility[r, c] = True  # Obstacle is visible
+                        break
+                        
+                    visibility[r, c] = True
+                    r += dr
+                    c += dc
+                    
+    return visibility
+    
+def bresenham_(r0, c0, r1, c1):
+        """Yields coordinates on the straight line between (r0, c0) and (r1, c1)."""
+        dy = abs(r1 - r0)
+        dx = abs(c1 - c0)
+        sy = 1 if r0 < r1 else -1
+        sx = 1 if c0 < c1 else -1
+        err = dx - dy
+
+        while True:
+            yield (r0, c0)
+            if r0 == r1 and c0 == c1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                c0 += sx
+            if e2 < dx:
+                err += dx
+                r0 += sy
+
+
+
+def get_bresenham_visibility_map(grid, loc_list, with_last_obstacle=False, vision_radius=float('inf')):
+    rows, cols = grid.shape
+    visibility = np.zeros((rows, cols), dtype=bool)
+    
+    for loc in loc_list:
+        r0, c0 = loc
+        
+        # 1. Bounding Box Optimization:
+        # Don't iterate over the whole grid if the radius is small.
+        if vision_radius != float('inf'):
+            r_min = max(0, int(math.floor(r0 - vision_radius)))
+            r_max = min(rows, int(math.ceil(r0 + vision_radius)) + 1)
+            c_min = max(0, int(math.floor(c0 - vision_radius)))
+            c_max = min(cols, int(math.ceil(c0 + vision_radius)) + 1)
+        else:
+            r_min, r_max = 0, rows
+            c_min, c_max = 0, cols
+            
+        # Check visibility only to cells within the bounding box
+        for r1 in range(r_min, r_max):
+            for c1 in range(c_min, c_max):
+                if (r1, c1) == (r0, c0):
+                    visibility[r1, c1] = True  # The cell itself is always visible
+                    continue
+                
+                # 2. Fast Euclidean Check
+                # Drop the "corners" of the bounding box to form a perfect vision circle.
+                target_dist = math.sqrt((r1 - r0)**2 + (c1 - c0)**2)
+                if target_dist > vision_radius:
+                    continue
+                
+                # 3. Trace the Bresenham line
+                for r, c in bresenham_(r0, c0, r1, c1):
+                    if grid[r, c] == 1:
+                        if with_last_obstacle:
+                            visibility[r, c] = True  # Obstacle is visible
+                        break # Ray hit a wall, stop traversing this line
+                        
+                    visibility[r, c] = True
+    
+    return visibility
 
 def greedy_max_visibility_path(grid, start, max_steps=500, verbose=False):
     """Greedy algorithm that always moves to the neighbor that reveals the most unseen cells.
@@ -630,8 +740,15 @@ def plot_path(grid, path, start=None):
     # plt.show()
 
 
-def plot_visibility(grid, path, unseen=False):
-    visibility = get_LOS4_visibility_map(grid, path)
+def plot_visibility(grid, path, los_type = 'los4', visibility_radius=float('inf'), unseen=False):
+    if los_type == 'los4':
+        visibility = get_LOS4_visibility_map(grid, path, vision_radius=visibility_radius)
+    elif los_type == 'los8':
+        visibility = get_LOS8_visibility_map(grid, path, vision_radius=visibility_radius)
+    elif los_type == "bresenham":
+        visibility = get_bresenham_visibility_map(grid, path, vision_radius=visibility_radius)
+    else:
+        raise ValueError("Invalid los_type. Expected 'los4', 'los8', or 'bresenham'.")
 
     if unseen:
         plt.imshow((1 - visibility) * (1 - grid), cmap='gray')
@@ -648,7 +765,7 @@ def plot_visibility(grid, path, unseen=False):
     plt.plot(path[-1][1], path[-1][0], 'ro', markersize=8, label='End')
 
     plt.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    plt.title('Cumulative LOS4 Visibility Along Path')
+    plt.title(f'Cumulative {los_type.upper()} Visibility Along Path')
     plt.show()
 
 
