@@ -301,7 +301,7 @@ def apply_grazing_los(grid, expanded_los):
     
     return final_los
 
-def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0, grazing_walls = True):
+def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0, grazing_walls = True, los_type = "los4", vision_radius = float('inf')):
     """
     Generate training data for online learning by simulating the execution of the offline path and recording the state transitions.
     
@@ -343,7 +343,15 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
         agent_position[current_pos] = 1.0
         
         # Simulate Line of Sight (LOS) from the current position
-        expanded_los = get_LOS4_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True)
+        if los_type == "los4":
+            expanded_los = get_LOS4_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
+        elif los_type == "bresenham":
+            expanded_los = get_bresenham_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
+        elif los_type == "los8":
+            expanded_los = get_LOS8_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
+        else:
+            raise ValueError(f"Invalid los_type: {los_type}. Must be one of ['los4', 'bresenham', 'los8']")
+        
         if grazing_walls:
             expanded_los = apply_grazing_los(grid, expanded_los)
 
@@ -400,7 +408,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
 
 
 from data_generator import _solve_grid
-def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, timeout=300):
+def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), timeout=300):
     X_list = []
     y_list = []
     skipped = 0
@@ -418,7 +426,7 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
             continue
         
         # Generate training data from the path
-        X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step, grazing_walls=grazing_walls)
+        X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step, grazing_walls=grazing_walls, los_type=los_type, vision_radius=vision_radius)
         X_list.append(torch.tensor(X, dtype=torch.float32))
         y_list.append(torch.tensor(y, dtype=torch.float32))
     
