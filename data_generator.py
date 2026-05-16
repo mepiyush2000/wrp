@@ -47,8 +47,8 @@ def generate_training_data(grid, path, apply_smoothening = False):
 
     return torch.stack(X), torch.stack(y)
 
-def _solve_grid(grid, start):
-    solver = WRPSolverTSPJF(grid, start)
+def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf')):
+    solver = WRPSolverTSPJF(grid, start, los_type=los_type, vision_radius=vision_radius)
     return solve_wrp_tsp_jf(solver)
 
 def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout=900):
@@ -301,6 +301,27 @@ def apply_grazing_los(grid, expanded_los):
     
     return final_los
 
+def get_visibility_map_with_LOS(grid, path, grazing_walls, los_type, vision_radius, with_last_obstacle=False):
+    unseen_map = np.ones_like(grid, dtype=np.float32)
+    agent_position = np.zeros_like(grid, dtype=np.float32)
+    
+    current_pos = path[-1]
+    agent_position[current_pos] = 1.0
+    
+    if los_type == "los4":
+        expanded_los = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    elif los_type == "bresenham":
+        expanded_los = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    elif los_type == "los8":
+        expanded_los = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    else:
+        raise ValueError(f"Unsupported LOS type: {los_type}")
+
+    if grazing_walls:
+        expanded_los = apply_grazing_los(grid, expanded_los)
+    
+    return expanded_los
+
 def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0, grazing_walls = True, los_type = "los4", vision_radius = float('inf')):
     """
     Generate training data for online learning by simulating the execution of the offline path and recording the state transitions.
@@ -343,15 +364,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
         agent_position[current_pos] = 1.0
         
         # Simulate Line of Sight (LOS) from the current position
-        if los_type == "los4":
-            expanded_los = get_LOS4_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
-        elif los_type == "bresenham":
-            expanded_los = get_bresenham_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
-        elif los_type == "los8":
-            expanded_los = get_LOS8_visibility_map(grid, offline_path[:step+1], with_last_obstacle=True, vision_radius=vision_radius)
-        else:
-            raise ValueError(f"Invalid los_type: {los_type}. Must be one of ['los4', 'bresenham', 'los8']")
-        
+        expanded_los = get_visibility_map_with_LOS(grid, offline_path[:step + 1], grazing_walls, los_type, vision_radius, with_last_obstacle=True)
         if grazing_walls:
             expanded_los = apply_grazing_los(grid, expanded_los)
 
@@ -420,7 +433,7 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
         grid, start = gen.generate_simple_polygon_grid()
         
         try:
-            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start), timeout=timeout)
+            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, los_type, vision_radius), timeout=timeout)
         except TimeoutError:
             skipped += 1
             continue

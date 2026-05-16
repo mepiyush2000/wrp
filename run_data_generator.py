@@ -8,7 +8,7 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Generate training data for WRP online learning")
     argparser.add_argument("--num_samples", type=int, required=True, help="Number of training samples to generate")
     argparser.add_argument("--split", type=str, default="train", choices=["train", "test"], help="Whether to generate training or test data")
-    argparser.add_argument("--type", type=str, default="offline", choices=["offline", "online"], help="Whether to generate data for offline learning or online learning ")
+    argparser.add_argument("--type", type=str, default="online", choices=["offline", "online"], help="Whether to generate data for offline learning or online learning ")
     argparser.add_argument("--discounted_step", type=int, default=0, help="Number of initial steps to discount in the path for training data generation")
     argparser.add_argument("--grazing", action="store_true", help="Whether to use grazing for data generation (only applicable for online learning)")
     argparser.add_argument("--los_type", type=str, default="los4", choices=["los4", "bresenham", "los8"], help="Type of Line of Sight (LOS) calculation to use for online learning data generation")
@@ -47,4 +47,4 @@ if __name__ == "__main__":
 # How to run:
 # python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
 #with grazing
-# python run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type bresenham --vision_radius 6 --num_samples 251
+# python3 run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type bresenham --vision_radius 6 --num_samples 251
