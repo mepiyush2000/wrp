@@ -27,7 +27,7 @@ if __name__ == "__main__":
     if data_type == "offline":  
         file_path = f"data/wrp_data_16x16_{num_samples}_samples_SP_{split}.pt"
     else:
-        file_path = f"data/wrp_online_grazing_data_16x16_los_{args.los_type}_vision_{args.vision_radius}_{num_samples}_samples_SP_{split}.pt"
+        file_path = f"data/wrp_online_grazing_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_SP_{split}.pt"
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     if os.path.exists(file_path):
