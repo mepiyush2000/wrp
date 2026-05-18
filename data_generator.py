@@ -364,9 +364,8 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
         agent_position[current_pos] = 1.0
         
         # Simulate Line of Sight (LOS) from the current position
+        
         expanded_los = get_visibility_map_with_LOS(grid, offline_path[:step + 1], grazing_walls, los_type, vision_radius, with_last_obstacle=True)
-        if grazing_walls:
-            expanded_los = apply_grazing_los(grid, expanded_los)
 
         unseen_map[expanded_los == 1] = 0.0  # This cell has been seen
 
@@ -429,8 +428,8 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
     for _ in tqdm(range(num_samples)):
         # Generate a random grid and path
         gen = WRPDataGenerator(*grid_size)
-        # grid, start = gen.generate_valid_grid(density=density)
-        grid, start = gen.generate_simple_polygon_grid()
+        grid, start = gen.generate_valid_grid(density=density)
+        # grid, start = gen.generate_simple_polygon_grid()
         
         try:
             path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, los_type, vision_radius), timeout=timeout)
