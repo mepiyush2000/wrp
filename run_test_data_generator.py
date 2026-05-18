@@ -33,7 +33,7 @@ if __name__ == "__main__":
         print(f"File {file_path} already exists. Please delete it or choose a different configuration.")
         exit(1)
     
-
+    skipped = 0
     data_to_save = {"grid": [], "start": [], "path_opt": []}
     for i in tqdm(range(num_samples), desc="Generating samples"):
         gen = WRPDataGenerator(*grid_size)
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         try:
             path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, args.los_type, args.vision_radius), timeout=timeout)  
         except TimeoutError:
-            print(f"Skipping: Sample {i}: Optimization timed out. Skipping this sample.")
+            skipped += 1   
             continue
 
         data_to_save["grid"].append(np.array(grid, dtype=np.uint8))
@@ -53,6 +53,7 @@ if __name__ == "__main__":
         data_to_save["path_opt"].append(np.array(path_opt, dtype=np.uint8))
 
 
+    print(f"Generated {num_samples} samples, skipped {skipped} due to timeouts.")
     np.save(file_path, data_to_save)
 
     print(f"Data saved to {file_path}")

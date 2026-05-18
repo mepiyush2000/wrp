@@ -740,13 +740,13 @@ def plot_path(grid, path, start=None):
     # plt.show()
 
 
-def plot_visibility(grid, path, los_type = 'los4', visibility_radius=float('inf'), unseen=False):
+def plot_visibility(grid, path, los_type = 'los4', vision_radius=float('inf'), unseen=False):
     if los_type == 'los4':
-        visibility = get_LOS4_visibility_map(grid, path, vision_radius=visibility_radius)
+        visibility = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius)
     elif los_type == 'los8':
-        visibility = get_LOS8_visibility_map(grid, path, vision_radius=visibility_radius)
+        visibility = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius)
     elif los_type == "bresenham":
-        visibility = get_bresenham_visibility_map(grid, path, vision_radius=visibility_radius)
+        visibility = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius)
     else:
         raise ValueError("Invalid los_type. Expected 'los4', 'los8', or 'bresenham'.")
 

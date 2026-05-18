@@ -76,22 +76,34 @@ class WRPSolverTSPJF:
             for cell in self.empty_cells:
                 visible = set()
                 r0, c0 = cell
-                for target in self.empty_cells:
-                    r1, c1 = target
-                    
-                    # 1. Fast Euclidean distance check
-                    dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
-                    if dist > self.vision_radius:
-                        continue # Target is outside the vision circle, skip Bresenham
-                        
-                    has_los = True
-                    # 2. Trace the Bresenham line
-                    for r, c in self._bresenham(r0, c0, r1, c1):
-                        if not self.in_bounds(r, c) or self.grid[r][c] == 1:
-                            has_los = False
-                            break
-                    if has_los:
-                        visible.add(target)
+                
+                # Bounding box for radius optimization
+                r_min = max(0, int(r0 - self.vision_radius))
+                r_max = min(self.rows, int(r0 + self.vision_radius) + 1)
+                c_min = max(0, int(c0 - self.vision_radius))
+                c_max = min(self.cols, int(c0 + self.vision_radius) + 1)
+                
+                # We MUST iterate over the bounding box, casting rays to WALLS too
+                for r1 in range(r_min, r_max):
+                    for c1 in range(c_min, c_max):
+                        # Fast Euclidean check
+                        target_dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
+                        if target_dist > self.vision_radius:
+                            continue
+                            
+                        # Trace the Bresenham line and add ALL intermediate floor cells
+                        for r, c in self._bresenham(r0, c0, r1, c1):
+                            if not self.in_bounds(r, c):
+                                break
+                                
+                            if self.grid[r][c] == 1:
+                                break # Ray hit a wall, stop traversing
+                                
+                            # If it's an empty cell, mark it visible!
+                            # This fixes the "Slope Paradox" by granting vision to 
+                            # floor cells that lie on the path to a wall.
+                            visible.add((r, c))
+                            
                 self.los_table[cell] = frozenset(visible)
         else:
             # Raycasting for LOS4 / LOS8 with radius limit
