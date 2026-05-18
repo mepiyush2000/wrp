@@ -128,11 +128,13 @@ class WRPDataGenerator:
                     queue.append((nr, nc))
         return len(visited) == len(empty_cells)
 
-    def generate_valid_grid(self, density=5):
+    def generate_valid_grid(self, density=5, clutter_proba=0.75, free_ratio_threshold=0.5):
         """Generates realistic indoor-like maps with rooms, corridors, and clutter blocks.
 
         Args:
             density: controls clutter intensity (higher -> more obstacle blocks inside rooms).
+            clutter_proba: whether to add clutter blocks inside rooms.
+            free_ratio_threshold: minimum ratio of free cells to total cells to ensure enough navigable space.
         """
         min_side = min(self.rows, self.cols)
         if min_side < 8:
@@ -202,17 +204,18 @@ class WRPDataGenerator:
                 else:
                     self._carve_v_corridor(grid, c1, r1, r2, corridor_width)
 
-            clutter_density = density
-            for room in rooms:
-                if random.random() < 0.9:  # 90% chance to add clutter to a room
-                    self._add_room_clutter(grid, room, clutter_density=clutter_density)
+            if clutter_proba > 0:
+                clutter_density = density
+                for room in rooms:
+                    if random.random() < clutter_proba:  # chance to add clutter to a room
+                        self._add_room_clutter(grid, room, clutter_density=clutter_density)
 
             if not self._is_fully_connected(grid):
                 continue
 
             free_cells = np.argwhere(grid == 0)
             free_ratio = len(free_cells) / (self.rows * self.cols)
-            if free_ratio < 0.30:
+            if free_ratio < free_ratio_threshold:
                 continue
 
             start_r, start_c = free_cells[random.randint(0, len(free_cells) - 1)]
