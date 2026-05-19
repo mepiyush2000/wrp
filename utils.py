@@ -205,40 +205,93 @@ def get_bresenham_visibility_map(grid, loc_list, with_last_obstacle=False, visio
     for loc in loc_list:
         r0, c0 = loc
         
-        # 1. Bounding Box Optimization:
-        # Don't iterate over the whole grid if the radius is small.
+        # Bounding box for radius optimization (Exactly matches offline logic)
         if vision_radius != float('inf'):
-            r_min = max(0, int(math.floor(r0 - vision_radius)))
-            r_max = min(rows, int(math.ceil(r0 + vision_radius)) + 1)
-            c_min = max(0, int(math.floor(c0 - vision_radius)))
-            c_max = min(cols, int(math.ceil(c0 + vision_radius)) + 1)
+            r_min = max(0, int(r0 - vision_radius))
+            r_max = min(rows, int(r0 + vision_radius) + 1)
+            c_min = max(0, int(c0 - vision_radius))
+            c_max = min(cols, int(c0 + vision_radius) + 1)
         else:
             r_min, r_max = 0, rows
             c_min, c_max = 0, cols
             
-        # Check visibility only to cells within the bounding box
+        # We MUST iterate over the bounding box, casting rays to WALLS too
         for r1 in range(r_min, r_max):
             for c1 in range(c_min, c_max):
-                if (r1, c1) == (r0, c0):
-                    visibility[r1, c1] = True  # The cell itself is always visible
-                    continue
-                
-                # 2. Fast Euclidean Check
-                # Drop the "corners" of the bounding box to form a perfect vision circle.
-                target_dist = math.sqrt((r1 - r0)**2 + (c1 - c0)**2)
+                # Fast Euclidean check (Exactly matches offline logic)
+                target_dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
                 if target_dist > vision_radius:
                     continue
-                
-                # 3. Trace the Bresenham line
+                    
+                # Trace the Bresenham line and add ALL intermediate cells
                 for r, c in bresenham_(r0, c0, r1, c1):
+                    # Bounds check (Exactly matches offline self.in_bounds)
+                    if not (0 <= r < rows and 0 <= c < cols):
+                        break
+                        
                     if grid[r, c] == 1:
                         if with_last_obstacle:
                             visibility[r, c] = True  # Obstacle is visible
-                        break # Ray hit a wall, stop traversing this line
+                        break # Ray hit a wall, stop traversing
                         
+                    # If it's an empty cell (or the origin), mark it visible!
                     visibility[r, c] = True
-    
+                    
     return visibility
+
+
+def apply_grazing_los(grid, expanded_los):
+    """
+    Simulates peripheral vision using NumPy array slicing.
+    """
+    # 1. Identify definitive visible floor (boolean mask)
+    visible_floor = (expanded_los == 1) & (grid == 0)
+    
+    # 2. Initialize empty arrays for the 4 directions
+    graze_up    = np.zeros_like(visible_floor)
+    graze_down  = np.zeros_like(visible_floor)
+    graze_left  = np.zeros_like(visible_floor)
+    graze_right = np.zeros_like(visible_floor)
+    
+    # 3. Shift the visible floor arrays (exactly like our dynamic programming code)
+    graze_up[:-1, :]   = visible_floor[1:, :]
+    graze_down[1:, :]  = visible_floor[:-1, :]
+    graze_left[:, :-1] = visible_floor[:, 1:]
+    graze_right[:, 1:] = visible_floor[:, :-1]
+    
+    # 4. Combine all orthogonal shifts to get the "grazed" area
+    grazed_area = visible_floor | graze_up | graze_down | graze_left | graze_right
+    
+    # 5. The Critical Filter: ONLY keep the grazed cells if they are solid walls
+    grazed_walls = grazed_area & (grid == 1)
+    
+    # 6. Merge the original LOS with the newly illuminated wall boundaries
+    final_los = expanded_los | grazed_walls
+    
+    return final_los
+
+def get_visibility_map_with_LOS(grid, path, grazing_walls, los_type, vision_radius, with_last_obstacle=False):
+    unseen_map = np.ones_like(grid, dtype=np.float32)
+    agent_position = np.zeros_like(grid, dtype=np.float32)
+    
+    current_pos = path[-1]
+    agent_position[current_pos] = 1.0
+    
+    if los_type == "los4":
+        expanded_los = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    elif los_type == "bresenham":
+        expanded_los = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    elif los_type == "los8":
+        expanded_los = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    else:
+        raise ValueError(f"Unsupported LOS type: {los_type}")
+
+    if grazing_walls:
+        los4_visibility = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+        grazed_los = apply_grazing_los(grid, los4_visibility)
+        expanded_los = expanded_los | grazed_los
+    
+    return expanded_los
 
 def greedy_max_visibility_path(grid, start, max_steps=500, verbose=False):
     """Greedy algorithm that always moves to the neighbor that reveals the most unseen cells.
@@ -740,16 +793,8 @@ def plot_path(grid, path, start=None):
     # plt.show()
 
 
-def plot_visibility(grid, path, los_type = 'los4', vision_radius=float('inf'), unseen=False):
-    if los_type == 'los4':
-        visibility = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius)
-    elif los_type == 'los8':
-        visibility = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius)
-    elif los_type == "bresenham":
-        visibility = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius)
-    else:
-        raise ValueError("Invalid los_type. Expected 'los4', 'los8', or 'bresenham'.")
-
+def plot_visibility(grid, path, los_type = 'los4', vision_radius=float('inf'), grazing_walls = False, unseen=False):
+    visibility = get_visibility_map_with_LOS(grid, path, grazing_walls, los_type=los_type, vision_radius=vision_radius)
     if unseen:
         plt.imshow((1 - visibility) * (1 - grid), cmap='gray')
     else:
@@ -766,6 +811,41 @@ def plot_visibility(grid, path, los_type = 'los4', vision_radius=float('inf'), u
 
     plt.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
     plt.title(f'Cumulative {los_type.upper()} Visibility Along Path')
+    plt.show()
+
+
+def plot_visibility2(grid, path, los_type='los4', vision_radius=float('inf'), grazing_walls=False):
+    # 1. Get visibility (MUST include with_last_obstacle=True to see the walls!)
+    visibility = get_visibility_map_with_LOS(grid, path, grazing_walls=grazing_walls, with_last_obstacle=True, los_type=los_type, vision_radius=vision_radius)
+    # 2. Create the 3-state render grid
+    # Initialize the entire map as "Fog" (0.5 -> Gray)
+    render_grid = np.full(grid.shape, 0.5)
+    
+    # Mark Visible Floor (1.0 -> White)
+    render_grid[(visibility == True) & (grid == 0)] = 1.0
+    
+    # Mark Visible Obstacles (0.0 -> Black)
+    render_grid[(visibility == True) & (grid == 1)] = 0.0
+
+    # 3. Plot the grid
+    # vmin=0 and vmax=1 ensures the grayscale maps exactly to our 0.0, 0.5, 1.0 values
+    plt.imshow(render_grid, cmap='gray', vmin=0, vmax=1)
+
+    plt.grid(True, color='black', linewidth=0.5)
+    plt.xticks(np.arange(-0.5, grid.shape[1], 1))
+    plt.yticks(np.arange(-0.5, grid.shape[0], 1))
+
+    # 4. Plot the Path
+    if len(path) > 0:
+        path_arr = np.array(path)
+        plt.plot(path_arr[:, 1], path_arr[:, 0], 'b-', linewidth=2, alpha=0.6, label='Agent Path')
+        plt.plot(path[0][1], path[0][0], 'go', markersize=8, label='Start')
+        plt.plot(path[-1][1], path[-1][0], 'ro', markersize=8, label='End')
+
+    plt.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    
+    # Optional: Add a legend outside the plot so it doesn't cover the grid
+    plt.tight_layout()
     plt.show()
 
 

@@ -271,57 +271,6 @@ def polygon_to_obstacle_grid(shell, grid_shape=(64, 64), holes=None, samples_per
     return grid, extent, coverage
 
 
-def apply_grazing_los(grid, expanded_los):
-    """
-    Simulates peripheral vision using NumPy array slicing.
-    """
-    # 1. Identify definitive visible floor (boolean mask)
-    visible_floor = (expanded_los == 1) & (grid == 0)
-    
-    # 2. Initialize empty arrays for the 4 directions
-    graze_up    = np.zeros_like(visible_floor)
-    graze_down  = np.zeros_like(visible_floor)
-    graze_left  = np.zeros_like(visible_floor)
-    graze_right = np.zeros_like(visible_floor)
-    
-    # 3. Shift the visible floor arrays (exactly like our dynamic programming code)
-    graze_up[:-1, :]   = visible_floor[1:, :]
-    graze_down[1:, :]  = visible_floor[:-1, :]
-    graze_left[:, :-1] = visible_floor[:, 1:]
-    graze_right[:, 1:] = visible_floor[:, :-1]
-    
-    # 4. Combine all orthogonal shifts to get the "grazed" area
-    grazed_area = visible_floor | graze_up | graze_down | graze_left | graze_right
-    
-    # 5. The Critical Filter: ONLY keep the grazed cells if they are solid walls
-    grazed_walls = grazed_area & (grid == 1)
-    
-    # 6. Merge the original LOS with the newly illuminated wall boundaries
-    final_los = expanded_los | grazed_walls
-    
-    return final_los
-
-def get_visibility_map_with_LOS(grid, path, grazing_walls, los_type, vision_radius, with_last_obstacle=False):
-    unseen_map = np.ones_like(grid, dtype=np.float32)
-    agent_position = np.zeros_like(grid, dtype=np.float32)
-    
-    current_pos = path[-1]
-    agent_position[current_pos] = 1.0
-    
-    if los_type == "los4":
-        expanded_los = get_LOS4_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
-    elif los_type == "bresenham":
-        expanded_los = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
-    elif los_type == "los8":
-        expanded_los = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
-    else:
-        raise ValueError(f"Unsupported LOS type: {los_type}")
-
-    if grazing_walls:
-        expanded_los = apply_grazing_los(grid, expanded_los)
-    
-    return expanded_los
-
 def generate_training_data_for_online_learning(grid, offline_path, discounted_step = 0, grazing_walls = True, los_type = "los4", vision_radius = float('inf')):
     """
     Generate training data for online learning by simulating the execution of the offline path and recording the state transitions.
