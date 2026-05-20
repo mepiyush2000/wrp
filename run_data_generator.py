@@ -22,7 +22,7 @@ if __name__ == "__main__":
     grazing = args.grazing
     grid_size = (16, 16)
     density = 5
-    timeout = 300
+    timeout = 180
 
     print("Args info:")
     print(f"Number of samples: {num_samples}")
@@ -58,6 +58,6 @@ if __name__ == "__main__":
 # How to run:
 # python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
 #with grazing
-# python3 run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type bresenham --vision_radius 6 --num_samples 251
+# python run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type bresenham --vision_radius 8 --num_samples 251
 # without grazing
 # python run_data_generator.py --split train --type online --discounted_step 10  --los_type bresenham --vision_radius 8 --num_samples 251
