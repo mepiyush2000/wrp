@@ -105,6 +105,32 @@ class WRPSolverTSPJF:
                             visible.add((r, c))
                             
                 self.los_table[cell] = frozenset(visible)
+        
+        # --- NEW SQUARE GRID LOGIC ---
+        elif self.los_type == 'square360':
+            for cell in self.empty_cells:
+                visible = set()
+                r0, c0 = cell
+                
+                r_min = max(0, int(r0 - self.vision_radius))
+                r_max = min(self.rows, int(r0 + self.vision_radius) + 1)
+                c_min = max(0, int(c0 - self.vision_radius))
+                c_max = min(self.cols, int(c0 + self.vision_radius) + 1)
+                
+                for r1 in range(r_min, r_max):
+                    for c1 in range(c_min, c_max):
+                        # No Euclidean check needed
+                        
+                        for r, c in self._bresenham(r0, c0, r1, c1):
+                            if not self.in_bounds(r, c):
+                                break
+                            if self.grid[r][c] == 1:
+                                break 
+                                
+                            visible.add((r, c))
+                            
+                self.los_table[cell] = frozenset(visible)
+
         else:
             # Raycasting for LOS4 / LOS8 with radius limit
             for cell in self.empty_cells:

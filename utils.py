@@ -175,6 +175,43 @@ def get_LOS8_visibility_map(grid, loc_list, with_last_obstacle=False, vision_rad
                     c += dc
                     
     return visibility
+
+def get_square_visibility_map(grid, loc_list, with_last_obstacle=False, vision_radius=float('inf')):
+    rows, cols = grid.shape
+    visibility = np.zeros((rows, cols), dtype=bool)
+    
+    for loc in loc_list:
+        r0, c0 = loc
+        
+        # 1. Bounding Box Optimization (This IS the Chebyshev limit)
+        if vision_radius != float('inf'):
+            r_min = max(0, int(r0 - vision_radius))
+            r_max = min(rows, int(r0 + vision_radius) + 1)
+            c_min = max(0, int(c0 - vision_radius))
+            c_max = min(cols, int(c0 + vision_radius) + 1)
+        else:
+            r_min, r_max = 0, rows
+            c_min, c_max = 0, cols
+            
+        # 2. Iterate over every cell in the square
+        for r1 in range(r_min, r_max):
+            for c1 in range(c_min, c_max):
+                # NOTICE: The math.sqrt() check is completely gone! 
+                # The bounding box naturally forms our square vision.
+                
+                # 3. Trace the Bresenham line
+                for r, c in bresenham_(r0, c0, r1, c1):
+                    if not (0 <= r < rows and 0 <= c < cols):
+                        break
+                        
+                    if grid[r, c] == 1:
+                        if with_last_obstacle:
+                            visibility[r, c] = True  
+                        break # Ray hit a wall
+                        
+                    visibility[r, c] = True
+                    
+    return visibility
     
 def bresenham_(r0, c0, r1, c1):
         """Yields coordinates on the straight line between (r0, c0) and (r1, c1)."""
@@ -283,6 +320,8 @@ def get_visibility_map_with_LOS(grid, path, grazing_walls, los_type, vision_radi
         expanded_los = get_bresenham_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
     elif los_type == "los8":
         expanded_los = get_LOS8_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
+    elif los_type == "square360":
+        expanded_los = get_square_visibility_map(grid, path, vision_radius=vision_radius, with_last_obstacle=with_last_obstacle)
     else:
         raise ValueError(f"Unsupported LOS type: {los_type}")
 

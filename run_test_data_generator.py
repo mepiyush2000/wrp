@@ -15,14 +15,14 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Generate training data for WRP online learning")
     argparser.add_argument("--num_samples", type=int, required=True, help="Number of training samples to generate")
     argparser.add_argument("--polygon_type", type=str, default="simple", choices=["simple", "holes"], help="Type of polygon to generate")
-    argparser.add_argument("--los_type", type=str, default="los4", choices=["los4", "bresenham", "los8"], help="Type of Line of Sight (LOS) calculation to use for online learning data generation")
+    argparser.add_argument("--los_type", type=str, default="los4", choices=["los4", "bresenham", "los8", "square360"], help="Type of Line of Sight (LOS) calculation to use for online learning data generation")
     argparser.add_argument("--vision_radius", type=int, default=float('inf'), help="Vision radius for LOS calculations (only applicable for online learning)")
 
     args = argparser.parse_args()
     num_samples = args.num_samples
     grid_size = (16, 16)
     density = 5
-    timeout = 300
+    timeout = 180
 
     
     file_path = f"data/wrp_gt_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_{args.polygon_type}.npy"
@@ -61,4 +61,4 @@ if __name__ == "__main__":
 
 
 # how to run
-# python3 run_test_data_generator.py --polygon_type simple --los_type bresenham --vision_radius 6 --num_samples 100 
+# python3 run_test_data_generator.py --polygon_type valid --los_type bresenham --vision_radius 8 --num_samples 100 
