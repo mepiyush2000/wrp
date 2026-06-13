@@ -203,13 +203,14 @@ def get_square_visibility_map(grid, loc_list, with_last_obstacle=False, vision_r
                 for r, c in bresenham_(r0, c0, r1, c1):
                     if not (0 <= r < rows and 0 <= c < cols):
                         break
-                        
+                    is_target = (r == r1 and c == c1)
                     if grid[r, c] == 1:
-                        if with_last_obstacle:
-                            visibility[r, c] = True  
-                        break # Ray hit a wall
-                        
-                    visibility[r, c] = True
+                        if is_target and with_last_obstacle:
+                            visibility[r, c] = True
+                        break
+                    if is_target:
+                        visibility[r, c] = True
+                        break
                     
     return visibility
     

@@ -95,15 +95,12 @@ class WRPSolverTSPJF:
                         for r, c in self._bresenham(r0, c0, r1, c1):
                             if not self.in_bounds(r, c):
                                 break
-                                
                             if self.grid[r][c] == 1:
-                                break # Ray hit a wall, stop traversing
-                                
-                            # If it's an empty cell, mark it visible!
-                            # This fixes the "Slope Paradox" by granting vision to 
-                            # floor cells that lie on the path to a wall.
-                            visible.add((r, c))
-                            
+                                break  # Wall: target unreachable, drop the ray
+                            if (r, c) == (r1, c1):
+                                visible.add((r, c))  # Target reached cleanly
+                                break
+                        # Intermediate empty cell: do NOT mark
                 self.los_table[cell] = frozenset(visible)
         
         # --- NEW SQUARE GRID LOGIC ---
@@ -125,9 +122,10 @@ class WRPSolverTSPJF:
                             if not self.in_bounds(r, c):
                                 break
                             if self.grid[r][c] == 1:
-                                break 
-                                
-                            visible.add((r, c))
+                                break
+                            if (r, c) == (r1, c1):
+                                visible.add((r, c))
+                                break
                             
                 self.los_table[cell] = frozenset(visible)
 
