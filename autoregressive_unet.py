@@ -140,6 +140,29 @@ def _num_groups(target, channels):
         g -= 1
     return g
 
+class AttentionBlock_GN(nn.Module):
+    def __init__(self, F_g, F_l, F_int, num_groups=8):
+        super().__init__()
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1, bias=False),
+            nn.GroupNorm(_num_groups(num_groups, F_int), F_int),
+        )
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1, bias=False),
+            nn.GroupNorm(_num_groups(num_groups, F_int), F_int),
+        )
+        self.psi = nn.Sequential(
+            nn.Conv2d(F_int, 1, kernel_size=1, bias=True),
+            nn.Sigmoid(),                       # no norm before the gate
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1 + x1)
+        psi = self.psi(psi)
+        return x * psi
 
 # 1. Time Embedding (unchanged)
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -226,11 +249,11 @@ class FlowMatchingUNet(nn.Module):
         self.down2 = Down(128, 256, time_emb_dim, dropout_p)
 
         self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.att2 = AttentionBlock(F_g=128, F_l=128, F_int=64)
+        self.att2 = AttentionBlock_GN(F_g=128, F_l=128, F_int=64)
         self.conv2 = ResidualConvWithTime(256, 128, time_emb_dim, dropout_p)
 
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.att1 = AttentionBlock(F_g=64, F_l=64, F_int=32)
+        self.att1 = AttentionBlock_GN(F_g=64, F_l=64, F_int=32)
         self.conv1 = ResidualConvWithTime(128, 64, time_emb_dim)
 
         # NO SIGMOID: predicting velocity (dx/dt), which can be negative.
