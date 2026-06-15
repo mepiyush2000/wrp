@@ -1,10 +1,6 @@
 import heapq
-import random
 import itertools
-from collections import deque
-
-import heapq
-import itertools
+import math
 from collections import deque
 
 class WRPSolverTSPJF:
@@ -15,7 +11,9 @@ class WRPSolverTSPJF:
         self.cols = len(grid[0])
         self.start = start
         self.los_type = los_type.lower()
-        self.vision_radius = vision_radius # <-- Store the radius
+        self.vision_radius = vision_radius
+        self.vision_radius_is_finite = math.isfinite(vision_radius)
+        self.vision_radius_sq = vision_radius * vision_radius if self.vision_radius_is_finite else None
         self.empty_cells = set()
         
         for r in range(self.rows):
@@ -24,7 +22,13 @@ class WRPSolverTSPJF:
                     self.empty_cells.add((r, c))
                     
         self.los_table = {}
+        self.los_mask_table = {}
+        self.los_size_table = {}
         self.apsp_table = {}
+
+        self.empty_cells_list = sorted(self.empty_cells)
+        self.cell_to_idx = {cell: idx for idx, cell in enumerate(self.empty_cells_list)}
+        self.all_seen_mask = (1 << len(self.empty_cells_list)) - 1
         
         # Determine vision directions for raycasting (if not using Bresenham)
         if self.los_type == 'los8':
@@ -34,6 +38,7 @@ class WRPSolverTSPJF:
             self.vision_dirs = [(0, 1), (0, -1), (1, 0), (-1, 0)]
             
         self._precompute_los()
+        self._build_los_masks()
         self._precompute_apsp()
 
     def in_bounds(self, r, c):
@@ -70,37 +75,55 @@ class WRPSolverTSPJF:
                 err += dx
                 r0 += sy
 
+    def _build_los_masks(self):
+        for cell, visible_cells in self.los_table.items():
+            mask = 0
+            for v in visible_cells:
+                mask |= 1 << self.cell_to_idx[v]
+            self.los_mask_table[cell] = mask
+            self.los_size_table[cell] = mask.bit_count()
+
+    def _iter_mask_indices(self, mask):
+        while mask:
+            lsb = mask & -mask
+            yield lsb.bit_length() - 1
+            mask ^= lsb
+
+    def _iter_mask_cells(self, mask):
+        for idx in self._iter_mask_indices(mask):
+            yield self.empty_cells_list[idx]
+
     def _precompute_los(self):
         """Precomputes the LOS for every empty cell with an optional radius limit."""
         if self.los_type == 'bresenham':
             for cell in self.empty_cells:
                 visible = set()
                 r0, c0 = cell
-                
-                # Bounding box for radius optimization
-                r_min = max(0, int(r0 - self.vision_radius))
-                r_max = min(self.rows, int(r0 + self.vision_radius) + 1)
-                c_min = max(0, int(c0 - self.vision_radius))
-                c_max = min(self.cols, int(c0 + self.vision_radius) + 1)
+
+                if self.vision_radius_is_finite:
+                    radius_int = int(self.vision_radius)
+                    r_min = max(0, r0 - radius_int)
+                    r_max = min(self.rows, r0 + radius_int + 1)
+                    c_min = max(0, c0 - radius_int)
+                    c_max = min(self.cols, c0 + radius_int + 1)
+                else:
+                    r_min, r_max, c_min, c_max = 0, self.rows, 0, self.cols
                 
                 # We MUST iterate over the bounding box, casting rays to WALLS too
                 for r1 in range(r_min, r_max):
                     for c1 in range(c_min, c_max):
-                        # Fast Euclidean check
-                        target_dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
-                        if target_dist > self.vision_radius:
-                            continue
-                            
-                        # Trace the Bresenham line and add ALL intermediate floor cells
+                        if self.vision_radius_is_finite:
+                            dr = r1 - r0
+                            dc = c1 - c0
+                            if (dr * dr + dc * dc) > self.vision_radius_sq:
+                                continue
+
                         for r, c in self._bresenham(r0, c0, r1, c1):
-                            if not self.in_bounds(r, c):
-                                break
                             if self.grid[r][c] == 1:
-                                break  # Wall: target unreachable, drop the ray
-                            if (r, c) == (r1, c1):
-                                visible.add((r, c))  # Target reached cleanly
                                 break
-                        # Intermediate empty cell: do NOT mark
+                            if (r, c) == (r1, c1):
+                                visible.add((r1, c1))
+                                break
                 self.los_table[cell] = frozenset(visible)
         
         # --- NEW SQUARE GRID LOGIC ---
@@ -108,23 +131,23 @@ class WRPSolverTSPJF:
             for cell in self.empty_cells:
                 visible = set()
                 r0, c0 = cell
-                
-                r_min = max(0, int(r0 - self.vision_radius))
-                r_max = min(self.rows, int(r0 + self.vision_radius) + 1)
-                c_min = max(0, int(c0 - self.vision_radius))
-                c_max = min(self.cols, int(c0 + self.vision_radius) + 1)
+
+                if self.vision_radius_is_finite:
+                    radius_int = int(self.vision_radius)
+                    r_min = max(0, r0 - radius_int)
+                    r_max = min(self.rows, r0 + radius_int + 1)
+                    c_min = max(0, c0 - radius_int)
+                    c_max = min(self.cols, c0 + radius_int + 1)
+                else:
+                    r_min, r_max, c_min, c_max = 0, self.rows, 0, self.cols
                 
                 for r1 in range(r_min, r_max):
                     for c1 in range(c_min, c_max):
-                        # No Euclidean check needed
-                        
                         for r, c in self._bresenham(r0, c0, r1, c1):
-                            if not self.in_bounds(r, c):
-                                break
                             if self.grid[r][c] == 1:
                                 break
                             if (r, c) == (r1, c1):
-                                visible.add((r, c))
+                                visible.add((r1, c1))
                                 break
                             
                 self.los_table[cell] = frozenset(visible)
@@ -161,25 +184,32 @@ class WRPSolverTSPJF:
                         self.apsp_table[start_cell][neighbor] = dist + 1
                         queue.append((neighbor, dist + 1))
 
-    def _get_maximal_los_disjoint_pivots(self, unseen):
+    def _get_maximal_los_disjoint_pivots(self, unseen_mask):
         """Finds a maximal set of pivots that cannot see each other."""
-        sorted_unseen = sorted(list(unseen), key=lambda c: len(self.los_table[c]), reverse=True)
+        sorted_unseen = sorted(
+            list(self._iter_mask_cells(unseen_mask)),
+            key=lambda c: self.los_size_table[c],
+            reverse=True,
+        )
         pivots = []
+        pivot_masks = []
         for c in sorted_unseen:
+            c_mask = self.los_mask_table[c]
             is_disjoint = True
-            for p in pivots:
-                if not self.los_table[c].isdisjoint(self.los_table[p]):
+            for p_mask in pivot_masks:
+                if c_mask & p_mask:
                     is_disjoint = False
                     break
             if is_disjoint:
                 pivots.append(c)
+                pivot_masks.append(c_mask)
         return pivots
 
-    def heuristic_tsp(self, current_loc, unseen):
+    def heuristic_tsp(self, current_loc, unseen_mask):
         """
         Calculates the exact TSP Hamiltonian Path cost to visit all disjoint components.
         """
-        pivots = self._get_maximal_los_disjoint_pivots(unseen)
+        pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
         if not pivots:
             return 0
             
@@ -189,14 +219,26 @@ class WRPSolverTSPJF:
         dist_matrix = [[float('inf')] * n for _ in range(n)]
         
         def min_comp_dist(comp1, comp2):
-            watchers1 = [current_loc] if comp1 == current_loc else self.los_table[comp1]
-            watchers2 = [current_loc] if comp2 == current_loc else self.los_table[comp2]
+            if comp1 == current_loc:
+                watchers1_mask = 1 << self.cell_to_idx[current_loc]
+            else:
+                watchers1_mask = self.los_mask_table[comp1]
+
+            if comp2 == current_loc:
+                watchers2_mask = 1 << self.cell_to_idx[current_loc]
+            else:
+                watchers2_mask = self.los_mask_table[comp2]
                 
             min_d = float('inf')
-            for w1 in watchers1:
-                for w2 in watchers2:
-                    if w2 in self.apsp_table.get(w1, {}):
-                        min_d = min(min_d, self.apsp_table[w1][w2])
+            for w1_idx in self._iter_mask_indices(watchers1_mask):
+                w1 = self.empty_cells_list[w1_idx]
+                dist_from_w1 = self.apsp_table.get(w1, {})
+                for w2_idx in self._iter_mask_indices(watchers2_mask):
+                    w2 = self.empty_cells_list[w2_idx]
+                    if w2 in dist_from_w1:
+                        d = dist_from_w1[w2]
+                        if d < min_d:
+                            min_d = d
             return min_d
 
         for i in range(n):
@@ -238,41 +280,41 @@ class WRPSolverTSPJF:
 def solve_wrp_tsp_jf(wrp_grid):
     """A* search with Basic Expansion and TSP Heuristic."""
     start_loc = wrp_grid.start
-    initial_seen = wrp_grid.los_table[start_loc]
-    initial_unseen = frozenset(wrp_grid.empty_cells - initial_seen)
+    initial_seen_mask = wrp_grid.los_mask_table[start_loc]
+    initial_unseen_mask = wrp_grid.all_seen_mask & ~initial_seen_mask
     
     pq = []
     tie_breaker = 0
     visited = {}
     
-    start_h = wrp_grid.heuristic_tsp(start_loc, initial_unseen)
-    heapq.heappush(pq, (start_h, tie_breaker, 0, start_loc, frozenset(initial_seen), [start_loc]))
-    visited[(start_loc, frozenset(initial_seen))] = 0
+    start_h = wrp_grid.heuristic_tsp(start_loc, initial_unseen_mask)
+    heapq.heappush(pq, (start_h, tie_breaker, 0, start_loc, initial_seen_mask, [start_loc]))
+    visited[(start_loc, initial_seen_mask)] = 0
     
     while pq:
-        f, _, g, current_loc, seen, path = heapq.heappop(pq)
+        f, _, g, current_loc, seen_mask, path = heapq.heappop(pq)
         
         # Goal check
-        if len(seen) == len(wrp_grid.empty_cells):
+        if seen_mask == wrp_grid.all_seen_mask:
             return path, g
             
         # Optional: Prune if a cheaper path to this state was found
-        if visited.get((current_loc, seen), float('inf')) < g:
+        if visited.get((current_loc, seen_mask), float('inf')) < g:
             continue
             
         # Basic Node Expansion
         for neighbor in wrp_grid.get_neighbors(current_loc):
             new_g = g + 1
-            new_seen = seen.union(wrp_grid.los_table[neighbor])
-            state_key = (neighbor, frozenset(new_seen))
+            new_seen_mask = seen_mask | wrp_grid.los_mask_table[neighbor]
+            state_key = (neighbor, new_seen_mask)
             
             if new_g < visited.get(state_key, float('inf')):
                 visited[state_key] = new_g
-                new_unseen = wrp_grid.empty_cells - new_seen
-                h = wrp_grid.heuristic_tsp(neighbor, new_unseen)
+                new_unseen_mask = wrp_grid.all_seen_mask & ~new_seen_mask
+                h = wrp_grid.heuristic_tsp(neighbor, new_unseen_mask)
                 
                 tie_breaker += 1
                 new_path = list(path) + [neighbor]
-                heapq.heappush(pq, (new_g + h, tie_breaker, new_g, neighbor, new_seen, new_path))
+                heapq.heappush(pq, (new_g + h, tie_breaker, new_g, neighbor, new_seen_mask, new_path))
                 
     return None, float('inf')
