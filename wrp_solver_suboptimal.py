@@ -1,3 +1,4 @@
+
 from wrp_solver_opt import WRPSolverTSPJF, solve_wrp_tsp_jf
  
 import heapq
@@ -5,9 +6,6 @@ import itertools
 import math
 from collections import deque
 
-# ===========================================================================
-# 2. JUMP-TO-FRONTIER EXTENSION
-# ===========================================================================
 class WRPSolverJF(WRPSolverTSPJF):
     def __init__(self, grid, start, los_type='los4', vision_radius=float('inf')):
         super().__init__(grid, start, los_type, vision_radius)
@@ -315,4 +313,3 @@ if __name__ == '__main__':
             print(f"  {name:12s}: unsolvable instance")
     # Note: lowering weight toward 1 at df>1 finds shorter routes but costs more
     # time (e.g. weight=2, df=1.5 on this grid reaches cost ~115 but is ~100x slower).
- 

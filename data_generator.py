@@ -51,6 +51,7 @@ def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf')):
     solver = WRPSolverTSPJF(grid, start, los_type=los_type, vision_radius=vision_radius)
     return solve_wrp_tsp_jf(solver)
 
+
 def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout=900):
     X_list = []
     y_list = []
@@ -366,9 +367,6 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
     return np.array(X), np.array(y)
 
 
-
-
-from data_generator import _solve_grid
 def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), timeout=300):
     X_list = []
     y_list = []
@@ -395,7 +393,6 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
         print(f"Skipped {skipped}/{num_samples} samples due to timeout ({timeout}s)")
     
     return torch.cat(X_list), torch.cat(y_list)
-
 
 
 # How to run
