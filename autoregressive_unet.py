@@ -233,7 +233,7 @@ class FlowMatchingUNet(nn.Module):
                  time_emb_dim=128, dropout_p=0.0):
         super().__init__()
         self.time_emb_dim = time_emb_dim
-        self._coord_cache = {}
+        # self._coord_cache = {}
 
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(time_emb_dim),
@@ -242,7 +242,7 @@ class FlowMatchingUNet(nn.Module):
             nn.Linear(time_emb_dim, time_emb_dim),
         )
 
-        total_in = context_channels + path_channels + 2  # +2 coordinate channels
+        total_in = context_channels + path_channels  # Removed coordinate channels
 
         self.inc = ResidualConvWithTime(total_in, 64, time_emb_dim)
         self.down1 = Down(64, 128, time_emb_dim)
@@ -262,21 +262,21 @@ class FlowMatchingUNet(nn.Module):
         nn.init.zeros_(self.outc.weight)
         nn.init.zeros_(self.outc.bias)
 
-    def _get_coord_channels(self, batch_size, h, w, device):
-        key = (h, w, device)
-        if key not in self._coord_cache:
-            y = torch.linspace(-1, 1, h, device=device)
-            x = torch.linspace(-1, 1, w, device=device)
-            yy, xx = torch.meshgrid(y, x, indexing='ij')
-            self._coord_cache[key] = torch.stack([yy, xx], dim=0)  # (2, H, W)
-        return self._coord_cache[key].unsqueeze(0).expand(batch_size, -1, -1, -1)
+    # def _get_coord_channels(self, batch_size, h, w, device):
+    #     key = (h, w, device)
+    #     if key not in self._coord_cache:
+    #         y = torch.linspace(-1, 1, h, device=device)
+    #         x = torch.linspace(-1, 1, w, device=device)
+    #         yy, xx = torch.meshgrid(y, x, indexing='ij')
+    #         self._coord_cache[key] = torch.stack([yy, xx], dim=0)  # (2, H, W)
+    #     return self._coord_cache[key].unsqueeze(0).expand(batch_size, -1, -1, -1)
 
     def forward(self, context, noisy_path, t):
         t_emb = self.time_mlp(t)
 
         b, _, h, w = context.shape
-        coords = self._get_coord_channels(b, h, w, context.device)
-        x = torch.cat([context, noisy_path, coords], dim=1)
+        # coords = self._get_coord_channels(b, h, w, context.device)
+        x = torch.cat([context, noisy_path], dim=1)
 
         # Encoder
         x1 = self.inc(x, t_emb)
