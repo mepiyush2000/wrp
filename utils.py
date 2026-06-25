@@ -935,39 +935,44 @@ def plot_visibility(grid, path, los_type = 'los4', vision_radius=float('inf'), g
     plt.show()
 
 
-def plot_visibility2(grid, path, los_type='los4', vision_radius=float('inf'), grazing_walls=False):
-    # 1. Get visibility (MUST include with_last_obstacle=True to see the walls!)
-    visibility = get_visibility_map_with_LOS(grid, path, grazing_walls=grazing_walls, with_last_obstacle=True, los_type=los_type, vision_radius=vision_radius)
-    # 2. Create the 3-state render grid
-    # Initialize the entire map as "Fog" (0.5 -> Gray)
+def plot_visibility2(grid, path, los_type='los4', vision_radius=float('inf'),
+                     grazing_walls=False, ax=None):
+    # If no axis is given, behave like before (standalone figure)
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(figsize=(5, 5))
+
+    # 1. Visibility
+    visibility = get_visibility_map_with_LOS(
+        grid, path, grazing_walls=grazing_walls, with_last_obstacle=True,
+        los_type=los_type, vision_radius=vision_radius)
+
+    # 2. 3-state render grid
     render_grid = np.full(grid.shape, 0.5)
-    
-    # Mark Visible Floor (1.0 -> White)
     render_grid[(visibility == True) & (grid == 0)] = 1.0
-    
-    # Mark Visible Obstacles (0.0 -> Black)
     render_grid[(visibility == True) & (grid == 1)] = 0.0
 
-    # 3. Plot the grid
-    # vmin=0 and vmax=1 ensures the grayscale maps exactly to our 0.0, 0.5, 1.0 values
-    plt.imshow(render_grid, cmap='gray', vmin=0, vmax=1)
+    # 3. Plot the grid  (all plt.* -> ax.*)
+    ax.imshow(render_grid, cmap='gray', vmin=0, vmax=1)
+    ax.grid(True, color='black', linewidth=0.5)
+    ax.set_xticks(np.arange(-0.5, grid.shape[1], 1))
+    ax.set_yticks(np.arange(-0.5, grid.shape[0], 1))
 
-    plt.grid(True, color='black', linewidth=0.5)
-    plt.xticks(np.arange(-0.5, grid.shape[1], 1))
-    plt.yticks(np.arange(-0.5, grid.shape[0], 1))
-
-    # 4. Plot the Path
+    # 4. Path
     if len(path) > 0:
         path_arr = np.array(path)
-        plt.plot(path_arr[:, 1], path_arr[:, 0], 'b-', linewidth=2, alpha=0.6, label='Agent Path')
-        plt.plot(path[0][1], path[0][0], 'go', markersize=8, label='Start')
-        plt.plot(path[-1][1], path[-1][0], 'ro', markersize=8, label='End')
+        ax.plot(path_arr[:, 1], path_arr[:, 0], 'b-', linewidth=2, alpha=0.6, label='Agent Path')
+        ax.plot(path[0][1], path[0][0], 'go', markersize=8, label='Start')
+        ax.plot(path[-1][1], path[-1][0], 'ro', markersize=8, label='End')
 
-    plt.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    
-    # Optional: Add a legend outside the plot so it doesn't cover the grid
-    plt.tight_layout()
-    plt.show()
+    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+    # Only manage the figure lifecycle when we created it ourselves
+    if standalone:
+        fig.tight_layout()
+        plt.show()
+
+    return ax
 
 
 def plot_output_tensor(output_tensor):
