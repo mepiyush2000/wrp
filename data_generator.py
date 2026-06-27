@@ -52,7 +52,7 @@ def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf')):
     return solve_wrp_tsp_jf(solver)
 
 
-def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout=900):
+def generate_N_training_data(num_samples, outPathFolder, grid_size=(16, 16), density=5, timeout=900):
     X_list = []
     y_list = []
     skipped = 0
@@ -69,6 +69,10 @@ def generate_N_training_data(num_samples, grid_size=(16, 16), density=5, timeout
             skipped += 1
             continue
         
+        num = random.randint(100000000, 999999999)
+        resJsonPath = os.path.join(outPathFolder, str(num) + ".npy")
+        resJson = {"grid": grid, "start": start, "path_opt": path_opt}
+        np.save(resJsonPath, resJson)
         # Generate training data from the path
         X, y = generate_training_data(grid, path_opt)
         X_list.append(X)
@@ -367,7 +371,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
     return np.array(X), np.array(y)
 
 
-def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), timeout=300):
+def generate_N_training_data_for_online_learning(num_samples, outPathFolder, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), timeout=300):
     X_list = []
     y_list = []
     skipped = 0
@@ -384,6 +388,10 @@ def generate_N_training_data_for_online_learning(num_samples, grid_size=(16, 16)
             skipped += 1
             continue
         
+        num = random.randint(100000000, 999999999)
+        resJsonPath = os.path.join(outPathFolder, str(num) + ".npy")
+        resJson = {"grid": grid, "start": start, "path_opt": path_opt}
+        np.save(resJsonPath, resJson)
         # Generate training data from the path
         X, y = generate_training_data_for_online_learning(grid, path_opt, discounted_step=discounted_step, grazing_walls=grazing_walls, los_type=los_type, vision_radius=vision_radius)
         X_list.append(torch.tensor(X, dtype=torch.float32))

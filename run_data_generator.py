@@ -22,7 +22,7 @@ if __name__ == "__main__":
     grazing = args.grazing
     grid_size = (16, 16)
     density = 5
-    timeout = 180
+    timeout = 300
 
     print("Args info:")
     print(f"Number of samples: {num_samples}")
@@ -36,9 +36,9 @@ if __name__ == "__main__":
     print(f"Timeout: {timeout}")
 
     if data_type == "offline":  
-        file_path = f"data/wrp_data_16x16_{num_samples}_samples_SP_{split}.pt"
+        file_path = f"data/wrp_data_16x16_{num_samples}_samples_SP_{split}"
     else:
-        file_path = f"data/wrp_online_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_SP_{split}.pt"
+        file_path = f"data/wrp_online_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_{split}"
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     if os.path.exists(file_path):
@@ -49,15 +49,17 @@ if __name__ == "__main__":
     if data_type == "offline":
         X, y = generate_N_training_data(num_samples, grid_size, density, timeout)
     else:
-        X, y = generate_N_training_data_for_online_learning(num_samples, grid_size, density, discounted_step, grazing_walls=grazing, los_type=args.los_type, vision_radius=args.vision_radius, timeout=timeout)
+        if not os.path.exists(file_path):
+            os.makedirs(file_path)
+        X, y = generate_N_training_data_for_online_learning(num_samples, file_path, grid_size, density, discounted_step, grazing_walls=grazing, los_type=args.los_type, vision_radius=args.vision_radius, timeout=timeout)
 
     print(f"Generated {X.shape[0]} training samples with shape {X.shape[1:]} and labels with shape {y.shape[1:]}")
-    save_data_to_disk(X, y, file_path)
+    save_data_to_disk(X, y, file_path + ".pt")
 
 
 # How to run:
 # python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
 #with grazing
-# python run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type bresenham --vision_radius 8 --num_samples 251
+# python3 run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type square360 --vision_radius 8 --num_samples 251
 # without grazing
-# python3 run_data_generator.py --split train --type online --discounted_step 10  --los_type bresenham --vision_radius 8 --num_samples 251
+# python3 run_data_generator.py --split train --type online --discounted_step 10  --los_type square360 --vision_radius 8 --num_samples 251
