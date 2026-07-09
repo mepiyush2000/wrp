@@ -5,6 +5,7 @@ import heapq
 import itertools
 import math
 from collections import deque
+import numpy as np
 
 class WRPSolverJF(WRPSolverTSPJF):
     def __init__(self, grid, start, los_type='los4', vision_radius=float('inf')):
@@ -13,6 +14,15 @@ class WRPSolverJF(WRPSolverTSPJF):
         self._precompute_frontier_watchers()
         self._build_apsp_parents()         # to reconstruct corridors for jumps
         self._jump_los_cache = {}
+        # Precompute numpy index arrays from seen_by_mask bitmasks — same trick
+        # as los_idx_table in the base class; eliminates np.fromiter in _min_comp_dist
+        self._seen_by_idx_table = {
+            cell: np.fromiter(self._iter_mask_indices(mask), dtype=np.intp)
+            for cell, mask in self.seen_by_mask.items()
+        }
+        # Per-call heuristic caches (keyed by (current_loc, unseen_mask))
+        self._jf_heuristic_cache = {}
+        self._jf_mst_cache = {}
  
     # --- precomputation ---------------------------------------------------
     def _build_inverse_los(self):
@@ -91,7 +101,8 @@ class WRPSolverJF(WRPSolverTSPJF):
         jump from `loc`. With df < inf keep only jumps within df * nearest cost."""
         unseen_mask = self.all_seen_mask & ~seen_mask
         pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
-        dist_from_loc = self.apsp_table.get(loc, {})
+        loc_idx = self.cell_to_idx[loc]
+        n_cells = self.apsp_matrix.shape[0]
  
         candidates, seen_targets = [], set()
         for p in pivots:
@@ -99,8 +110,8 @@ class WRPSolverJF(WRPSolverTSPJF):
                 if w in seen_targets:
                     continue
                 seen_targets.add(w)
-                d = dist_from_loc.get(w)
-                if d is None or d == 0:        # unreachable or self
+                d = int(self.apsp_matrix[loc_idx, self.cell_to_idx[w]])
+                if d == 0 or d > n_cells:      # self or unreachable
                     continue
                 candidates.append((d, w))
  
@@ -119,18 +130,14 @@ class WRPSolverJF(WRPSolverTSPJF):
         are the cells that can SEE its pivot (true inverse LOS via seen_by_mask,
         correct even for asymmetric bresenham/square360 LOS). The current-loc
         component is just {current_loc}."""
-        w1m = (1 << self.cell_to_idx[current_loc]) if comp1 == current_loc else self.seen_by_mask[comp1]
-        w2m = (1 << self.cell_to_idx[current_loc]) if comp2 == current_loc else self.seen_by_mask[comp2]
-        min_d = float('inf')
-        for i1 in self._iter_mask_indices(w1m):
-            dfrom = self.apsp_table.get(self.empty_cells_list[i1], {})
-            if not dfrom:
-                continue
-            for i2 in self._iter_mask_indices(w2m):
-                d = dfrom.get(self.empty_cells_list[i2])
-                if d is not None and d < min_d:
-                    min_d = d
-        return min_d
+        loc_arr = np.array([self.cell_to_idx[current_loc]], dtype=np.intp)
+        w1 = loc_arr if comp1 == current_loc else self._seen_by_idx_table[comp1]
+        w2 = loc_arr if comp2 == current_loc else self._seen_by_idx_table[comp2]
+        if w1.size == 0 or w2.size == 0:
+            return float('inf')
+        # w1[:,None] broadcasting avoids np.ix_() overhead
+        min_d = float(self.apsp_matrix[w1[:, None], w2].min())
+        return min_d if min_d <= self.n_cells else float('inf')
  
     def _build_component_dist_matrix(self, current_loc, pivots):
         components = [current_loc] + pivots
@@ -146,13 +153,26 @@ class WRPSolverJF(WRPSolverTSPJF):
         """Exact min Hamiltonian-path lower bound (Held-Karp). Tightest, but
         O(n^2 * 2^n) in the number of pivots -- the df>1 bottleneck.
         Overrides the base version to use true inverse-LOS watchers."""
-        pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
+        cache_key = (current_loc, unseen_mask)
+        cached = self._jf_heuristic_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Reuse base-class pivot cache (same _get_maximal_los_disjoint_pivots logic)
+        pivots = self._pivots_cache.get(unseen_mask)
+        if pivots is None:
+            pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
+            self._pivots_cache[unseen_mask] = pivots
         if not pivots:
+            self._jf_heuristic_cache[cache_key] = 0
             return 0
+
         components, dist = self._build_component_dist_matrix(current_loc, pivots)
         n = len(components)
         if n == 2:
-            return dist[0][1] if dist[0][1] != float('inf') else 0
+            result = dist[0][1] if dist[0][1] != float('inf') else 0
+            self._jf_heuristic_cache[cache_key] = result
+            return result
         memo = {}
         for i in range(1, n):
             memo[(1 << i, i)] = dist[0][i]
@@ -170,7 +190,9 @@ class WRPSolverJF(WRPSolverTSPJF):
                     memo[(mask, nxt)] = best
         full = sum(1 << i for i in range(1, n))
         best = min(memo.get((full, i), float('inf')) for i in range(1, n))
-        return best if best != float('inf') else 0
+        result = best if best != float('inf') else 0
+        self._jf_heuristic_cache[cache_key] = result
+        return result
  
     def heuristic_mst(self, current_loc, unseen_mask):
         """MST lower bound over {current_loc} U pivots. A Hamiltonian path is a
@@ -178,9 +200,20 @@ class WRPSolverJF(WRPSolverTSPJF):
         and only O(n^2) (Prim). Weaker bound than TSP (=> more node expansions),
         but no exponential per-node cost -- this is what unblocks df>1 / large
         grids for bulk dataset generation."""
-        pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
+        cache_key = (current_loc, unseen_mask)
+        cached = self._jf_mst_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Reuse base-class pivot cache
+        pivots = self._pivots_cache.get(unseen_mask)
+        if pivots is None:
+            pivots = self._get_maximal_los_disjoint_pivots(unseen_mask)
+            self._pivots_cache[unseen_mask] = pivots
         if not pivots:
+            self._jf_mst_cache[cache_key] = 0
             return 0
+
         components, dist = self._build_component_dist_matrix(current_loc, pivots)
         n = len(components)
         INF = float('inf')
@@ -201,6 +234,7 @@ class WRPSolverJF(WRPSolverTSPJF):
             for v in range(n):
                 if not in_tree[v] and row[v] < best[v]:
                     best[v] = row[v]
+        self._jf_mst_cache[cache_key] = total
         return total
  
  
