@@ -230,9 +230,11 @@ class Down(nn.Module):
 # 3. U-Net
 class FlowMatchingUNet(nn.Module):
     def __init__(self, context_channels=3, path_channels=1, out_channels=1,
-                 time_emb_dim=128, dropout_p=0.0):
+                 time_emb_dim=128, dropout_p=0.0, grid_size=16):
         super().__init__()
         self.time_emb_dim = time_emb_dim
+        self.grid_size = grid_size
+        self.deep = (grid_size == 32)          # 4th level only for 32x32
         self._coord_cache = {}
 
         self.time_mlp = nn.Sequential(
@@ -244,21 +246,27 @@ class FlowMatchingUNet(nn.Module):
 
         total_in = context_channels + path_channels + 2  # +2 coordinate channels
 
-        self.inc = ResidualConvWithTime(total_in, 64, time_emb_dim)
+        self.inc   = ResidualConvWithTime(total_in, 64, time_emb_dim)
         self.down1 = Down(64, 128, time_emb_dim)
         self.down2 = Down(128, 256, time_emb_dim, dropout_p)
 
-        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.att2 = AttentionBlock_GN(F_g=128, F_l=128, F_int=64)
+        if self.deep:
+            # 32 -> 16 -> 8 -> 4 : bottleneck at 4x4 sees the whole map again
+            self.down3 = Down(256, 512, time_emb_dim, dropout_p)
+
+            self.up3   = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+            self.att3  = AttentionBlock_GN(F_g=256, F_l=256, F_int=128)
+            self.conv3 = ResidualConvWithTime(512, 256, time_emb_dim, dropout_p)
+
+        self.up2   = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.att2  = AttentionBlock_GN(F_g=128, F_l=128, F_int=64)
         self.conv2 = ResidualConvWithTime(256, 128, time_emb_dim, dropout_p)
 
-        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.att1 = AttentionBlock_GN(F_g=64, F_l=64, F_int=32)
+        self.up1   = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.att1  = AttentionBlock_GN(F_g=64, F_l=64, F_int=32)
         self.conv1 = ResidualConvWithTime(128, 64, time_emb_dim)
 
-        # NO SIGMOID: predicting velocity (dx/dt), which can be negative.
         self.outc = nn.Conv2d(64, out_channels, kernel_size=1)
-        # Zero-init output so the net starts by predicting ~zero velocity (stabilizes early training)
         nn.init.zeros_(self.outc.weight)
         nn.init.zeros_(self.outc.bias)
 
@@ -268,7 +276,7 @@ class FlowMatchingUNet(nn.Module):
             y = torch.linspace(-1, 1, h, device=device)
             x = torch.linspace(-1, 1, w, device=device)
             yy, xx = torch.meshgrid(y, x, indexing='ij')
-            self._coord_cache[key] = torch.stack([yy, xx], dim=0)  # (2, H, W)
+            self._coord_cache[key] = torch.stack([yy, xx], dim=0)
         return self._coord_cache[key].unsqueeze(0).expand(batch_size, -1, -1, -1)
 
     def forward(self, context, noisy_path, t):
@@ -279,9 +287,14 @@ class FlowMatchingUNet(nn.Module):
         x = torch.cat([context, noisy_path, coords], dim=1)
 
         # Encoder
-        x1 = self.inc(x, t_emb)
-        x2 = self.down1(x1, t_emb)
-        x3 = self.down2(x2, t_emb)
+        x1 = self.inc(x, t_emb)          # (B,  64, 32, 32)
+        x2 = self.down1(x1, t_emb)       # (B, 128, 16, 16)
+        x3 = self.down2(x2, t_emb)       # (B, 256,  8,  8)
+
+        if self.deep:
+            x4 = self.down3(x3, t_emb)   # (B, 512,  4,  4)  <- bottleneck spans the map
+            g3 = self.up3(x4)            # (B, 256,  8,  8)
+            x3 = self.conv3(torch.cat((self.att3(g=g3, x=x3), g3), dim=1), t_emb)
 
         # Decoder
         g2 = self.up2(x3)
