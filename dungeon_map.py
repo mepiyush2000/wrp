@@ -18,14 +18,14 @@ def generate_N_training_data_for_online_learning_from_folder(folder_path, discou
     skipped = 0
     
     png_files = [f for f in os.listdir(folder_path) if f.endswith('.png')]
-    folder_paths = sorted(png_files)[4000:]
+    folder_paths = sorted(png_files)[3000+400:3500]
 
     for imname in tqdm(folder_paths):
         if (imname[-4:]!=".png"): continue
         impath = os.path.join(folder_path, imname)
         # Generate a random grid and path
         grid, start = image_to_grid2(impath)
-        resJsonPath = impath.replace(".png", "_vision_3.npy")
+        resJsonPath = impath.replace(".png", "_vision_bres_3.npy")
         if os.path.exists(resJsonPath): continue
 
         try:
@@ -51,7 +51,7 @@ def generate_N_training_data_for_online_learning_from_folder(folder_path, discou
 
 if __name__ == "__main__":
     folder_path = "data/DungeonMaps/train"
-    X, y = generate_N_training_data_for_online_learning_from_folder(folder_path, discounted_step=10, grazing_walls=True, los_type="square360", vision_radius=3, timeout=600)
+    X, y = generate_N_training_data_for_online_learning_from_folder(folder_path, discounted_step=10, grazing_walls=True, los_type="bresenham", vision_radius=3, timeout=600)
     print("Generated training data shapes:", X.shape, y.shape)
     file_path = f"data/dungeon_online_data_16x16_los_square360_vision_4_{X.shape[0]}_samples_test.pt"
     save_data_to_disk(X, y, file_path)

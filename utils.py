@@ -260,7 +260,7 @@ def get_bresenham_visibility_map(grid, loc_list, with_last_obstacle=False, visio
             for c1 in range(c_min, c_max):
                 # Fast Euclidean check (Exactly matches offline logic)
                 target_dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
-                if target_dist > vision_radius:
+                if target_dist > vision_radius + 1:
                     continue
                     
                 # Trace the Bresenham line and add ALL intermediate cells
