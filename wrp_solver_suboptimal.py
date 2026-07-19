@@ -8,8 +8,8 @@ from collections import deque
 import numpy as np
 
 class WRPSolverJF(WRPSolverTSPJF):
-    def __init__(self, grid, start, los_type='los4', vision_radius=float('inf')):
-        super().__init__(grid, start, los_type, vision_radius)
+    def __init__(self, grid, start, los_type='los4', vision_radius=float('inf'), is_for_training=False):
+        super().__init__(grid, start, los_type, vision_radius, is_for_training=is_for_training)
         self._build_inverse_los()          # who can SEE each cell (true watchers)
         self._precompute_frontier_watchers()
         self._build_apsp_parents()         # to reconstruct corridors for jumps

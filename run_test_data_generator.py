@@ -43,7 +43,7 @@ if __name__ == "__main__":
             grid, start = gen.generate_valid_grid(density=density)
 
         try:
-            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, args.los_type, args.vision_radius), timeout=timeout)  
+            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, args.los_type, args.vision_radius, False), timeout=timeout)  
         except TimeoutError:
             skipped += 1   
             continue
@@ -61,4 +61,4 @@ if __name__ == "__main__":
 
 
 # how to run
-# python3 run_test_data_generator.py --polygon_type valid --los_type bresenham --vision_radius 8 --num_samples 100 
+# python3 run_test_data_generator.py --polygon_type holes --los_type bresenham --vision_radius 8 --num_samples 100 

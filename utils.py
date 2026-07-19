@@ -241,41 +241,45 @@ def bresenham_(r0, c0, r1, c1):
 def get_bresenham_visibility_map(grid, loc_list, with_last_obstacle=False, vision_radius=float('inf')):
     rows, cols = grid.shape
     visibility = np.zeros((rows, cols), dtype=bool)
+    vision_radius_sq = (vision_radius+1) * (vision_radius+1) if math.isfinite(vision_radius) else None
     
     for loc in loc_list:
         r0, c0 = loc
         
-        # Bounding box for radius optimization (Exactly matches offline logic)
-        if vision_radius != float('inf'):
-            r_min = max(0, int(r0 - vision_radius))
-            r_max = min(rows, int(r0 + vision_radius) + 1)
-            c_min = max(0, int(c0 - vision_radius))
-            c_max = min(cols, int(c0 + vision_radius) + 1)
+        # Bounding box — same as offline solver
+        if math.isfinite(vision_radius):
+            radius_int = int(vision_radius)
+            r_min = max(0, r0 - radius_int)
+            r_max = min(rows, r0 + radius_int + 1)
+            c_min = max(0, c0 - radius_int)
+            c_max = min(cols, c0 + radius_int + 1)
         else:
             r_min, r_max = 0, rows
             c_min, c_max = 0, cols
             
-        # We MUST iterate over the bounding box, casting rays to WALLS too
         for r1 in range(r_min, r_max):
             for c1 in range(c_min, c_max):
-                # Fast Euclidean check (Exactly matches offline logic)
-                target_dist = ((r1 - r0)**2 + (c1 - c0)**2)**0.5
-                if target_dist > vision_radius + 1:
-                    continue
-                    
-                # Trace the Bresenham line and add ALL intermediate cells
+                if vision_radius_sq is not None:
+                    # Exact circle check — matches offline solver (dr²+dc² > vr²)
+                    dr = r1 - r0
+                    dc = c1 - c0
+                    if (dr * dr + dc * dc) > vision_radius_sq:
+                        continue
+
+                # Only mark the TARGET cell when the ray reaches it unobstructed.
+                # This matches the offline solver (_precompute_los) exactly and avoids
+                # the "intermediate cell" artefact where cells become visible only as
+                # incidental waypoints on rays aimed at other targets.
                 for r, c in bresenham_(r0, c0, r1, c1):
-                    # Bounds check (Exactly matches offline self.in_bounds)
                     if not (0 <= r < rows and 0 <= c < cols):
                         break
-                        
                     if grid[r, c] == 1:
-                        if with_last_obstacle:
-                            visibility[r, c] = True  # Obstacle is visible
-                        break # Ray hit a wall, stop traversing
-                        
-                    # If it's an empty cell (or the origin), mark it visible!
-                    visibility[r, c] = True
+                        if with_last_obstacle and (r == r1 and c == c1):
+                            visibility[r, c] = True
+                        break
+                    if r == r1 and c == c1:
+                        visibility[r, c] = True
+                        break
                     
     return visibility
 

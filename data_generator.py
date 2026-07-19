@@ -47,8 +47,8 @@ def generate_training_data(grid, path, apply_smoothening = False):
 
     return torch.stack(X), torch.stack(y)
 
-def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf')):
-    solver = WRPSolverTSPJF(grid, start, los_type=los_type, vision_radius=vision_radius)
+def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf'), is_for_training = False):
+    solver = WRPSolverTSPJF(grid, start, los_type=los_type, vision_radius=vision_radius, is_for_training=is_for_training)
     return solve_wrp_tsp_jf(solver)
 
 
@@ -64,7 +64,7 @@ def generate_N_training_data(num_samples, outPathFolder, grid_size=(16, 16), den
         # grid, start = gen.generate_simple_polygon_grid(density=density)
         
         try:
-            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start), timeout=timeout)
+            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, "los4", float('inf'), True), timeout=timeout)
         except TimeoutError:
             skipped += 1
             continue
@@ -383,7 +383,7 @@ def generate_N_training_data_for_online_learning(num_samples, outPathFolder, gri
         # grid, start = gen.generate_simple_polygon_grid()
         
         try:
-            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, los_type, vision_radius), timeout=timeout)
+            path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, los_type, vision_radius, True), timeout=timeout)
         except TimeoutError:
             skipped += 1
             continue

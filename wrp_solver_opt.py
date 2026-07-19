@@ -7,7 +7,7 @@ import torch
 
 class WRPSolverTSPJF:
     # Set default vision_radius to infinity for standard WRP
-    def __init__(self, grid, start, los_type='los4', vision_radius=float('inf'), use_gpu=False):
+    def __init__(self, grid, start, los_type='los4', vision_radius=float('inf'), is_for_training = False, use_gpu=False):
         self.grid = grid
         self.rows = len(grid)
         self.cols = len(grid[0])
@@ -15,7 +15,11 @@ class WRPSolverTSPJF:
         self.los_type = los_type.lower()
         self.vision_radius = vision_radius
         self.vision_radius_is_finite = math.isfinite(vision_radius)
-        self.vision_radius_sq = vision_radius * vision_radius if self.vision_radius_is_finite else None
+        if is_for_training:
+            self.vision_radius_sq = vision_radius * vision_radius if self.vision_radius_is_finite else None
+        else:
+            self.vision_radius_sq = (vision_radius + 1) * (vision_radius + 1) if self.vision_radius_is_finite else None
+
         self.empty_cells = set()
         
         for r in range(self.rows):
@@ -100,10 +104,27 @@ class WRPSolverTSPJF:
             self.los_mask_table[cell] = mask
             self.los_size_table[cell] = mask.bit_count()
 
-        # Precompute numpy index arrays once — eliminates np.fromiter inside min_comp_dist
+        # Forward LOS: cells visible FROM each cell (used for pivot selection)
         self.los_idx_table = {
             cell: np.fromiter(self._iter_mask_indices(mask), dtype=np.intp)
             for cell, mask in self.los_mask_table.items()
+        }
+
+        # Inverse LOS: for each cell p, the set of cells FROM WHICH p is visible.
+        # For symmetric LOS (los4/los8) this equals los_mask_table.
+        # For asymmetric LOS (bresenham/square360) they differ, and the heuristic
+        # MUST use the inverse LOS to remain admissible: to cover cell p the agent
+        # must reach a cell w where p ∈ LOS(w), i.e. w ∈ seen_by_mask[p].
+        n = self.n_cells
+        seen_by = [0] * n
+        for watcher, vis_mask in self.los_mask_table.items():
+            w_bit = 1 << self.cell_to_idx[watcher]
+            for idx in self._iter_mask_indices(vis_mask):
+                seen_by[idx] |= w_bit
+        self.seen_by_idx_table = {
+            self.empty_cells_list[i]:
+                np.fromiter(self._iter_mask_indices(seen_by[i]), dtype=np.intp)
+            for i in range(n)
         }
 
     def _iter_mask_indices(self, mask):
@@ -282,17 +303,19 @@ class WRPSolverTSPJF:
         k = len(pivots)
         n = k + 1  # components: [current_loc] + pivots
 
-        # Pivot-to-pivot distance submatrix — cached per unseen_mask (independent of current_loc)
+        # Pivot-to-pivot distance submatrix — cached per unseen_mask.
+        # Uses seen_by_idx_table (inverse LOS) so distances are admissible for
+        # asymmetric LOS types (bresenham/square360).
         pivot_dm = self._pivot_dist_cache.get(unseen_mask)
         if pivot_dm is None:
             pivot_dm = np.full((k, k), np.inf, dtype=np.float32)
             np.fill_diagonal(pivot_dm, 0.0)
             for i in range(k):
-                wi = self.los_idx_table[pivots[i]]
+                wi = self.seen_by_idx_table[pivots[i]]   # cells that CAN SEE pivot i
                 if wi.size == 0:
                     continue
                 for j in range(i + 1, k):
-                    wj = self.los_idx_table[pivots[j]]
+                    wj = self.seen_by_idx_table[pivots[j]]  # cells that CAN SEE pivot j
                     if wj.size == 0:
                         continue
                     d = float(self.apsp_matrix[wi[:, None], wj].min())
@@ -310,8 +333,9 @@ class WRPSolverTSPJF:
         loc_to_pivot = [float('inf')] * k
 
         if n == 2:
-            # Fast path: single pivot, no DP needed
-            w = self.los_idx_table[pivots[0]]
+            # Fast path: single pivot, no DP needed.
+            # Use seen_by_idx_table: cells FROM WHICH the pivot is visible.
+            w = self.seen_by_idx_table[pivots[0]]
             if w.size > 0:
                 d = float(loc_row[w].min())
                 result = d if d <= self.n_cells else 0
@@ -320,10 +344,9 @@ class WRPSolverTSPJF:
             self._heuristic_cache[cache_key] = result
             return result
 
-        # Held-Karp TSP DP — use pivot_dm and loc_to_pivot directly;
-        # no full dist_matrix array needed (eliminates np.full + fill_diagonal per call).
+        # Held-Karp TSP DP — use seen_by_idx_table for admissible loc-to-pivot distances
         for i, pivot in enumerate(pivots):
-            w = self.los_idx_table[pivot]
+            w = self.seen_by_idx_table[pivot]   # cells FROM WHICH pivot is visible
             if w.size > 0:
                 d = float(loc_row[w].min())
                 if d <= self.n_cells:
