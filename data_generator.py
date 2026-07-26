@@ -371,7 +371,7 @@ def generate_training_data_for_online_learning(grid, offline_path, discounted_st
     return np.array(X), np.array(y)
 
 
-def generate_N_training_data_for_online_learning(num_samples, outPathFolder, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), timeout=300):
+def generate_N_training_data_for_online_learning(num_samples, outPathFolder, grid_size=(16, 16), density=5, discounted_step = 0, grazing_walls=True, los_type = "los4", vision_radius = float('inf'), polygon_type="holes", timeout=300):
     X_list = []
     y_list = []
     skipped = 0
@@ -380,7 +380,10 @@ def generate_N_training_data_for_online_learning(num_samples, outPathFolder, gri
         # Generate a random grid and path
         gen = WRPDataGenerator(*grid_size)
         grid, start = gen.generate_valid_grid(density=density)
-        # grid, start = gen.generate_simple_polygon_grid()
+        if polygon_type == "simple":
+            grid, start = gen.generate_simple_polygon_grid()
+        else:
+            grid, start = gen.generate_valid_grid(density=density)
         
         try:
             path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, los_type, vision_radius, True), timeout=timeout)

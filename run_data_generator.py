@@ -9,6 +9,7 @@ if __name__ == "__main__":
     argparser.add_argument("--num_samples", type=int, required=True, help="Number of training samples to generate")
     argparser.add_argument("--split", type=str, default="train", choices=["train", "test"], help="Whether to generate training or test data")
     argparser.add_argument("--type", type=str, default="online", choices=["offline", "online"], help="Whether to generate data for offline learning or online learning ")
+    argparser.add_argument("--polygon_type", type=str, default="holes", choices=["holes", "simple"], help="Type of polygons to use for online learning data generation")
     argparser.add_argument("--discounted_step", type=int, default=0, help="Number of initial steps to discount in the path for training data generation")
     argparser.add_argument("--grazing", action="store_true", help="Whether to use grazing for data generation (only applicable for online learning)")
     argparser.add_argument("--los_type", type=str, default="los4", choices=["los4", "bresenham", "los8", "square360"], help="Type of Line of Sight (LOS) calculation to use for online learning data generation")
@@ -23,6 +24,7 @@ if __name__ == "__main__":
     grid_size = (16, 16)
     density = 5
     timeout = 300
+    polygon_type = args.polygon_type
 
     print("Args info:")
     print(f"Number of samples: {num_samples}")
@@ -35,8 +37,8 @@ if __name__ == "__main__":
     print(f"Grid size: {grid_size}")
     print(f"Timeout: {timeout}")
 
-    if data_type == "offline":  
-        file_path = f"data/wrp_data_16x16_{num_samples}_samples_SP_{split}"
+    if polygon_type == "simple":
+        file_path = f"data/wrp_online_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_SP_{split}"
     else:
         file_path = f"data/wrp_online_data_16x16_los_{args.los_type}_vision_{str(args.vision_radius)}_{num_samples}_samples_{split}"
 
@@ -51,7 +53,7 @@ if __name__ == "__main__":
     else:
         if not os.path.exists(file_path):
             os.makedirs(file_path)
-        X, y = generate_N_training_data_for_online_learning(num_samples, file_path, grid_size, density, discounted_step, grazing_walls=grazing, los_type=args.los_type, vision_radius=args.vision_radius, timeout=timeout)
+        X, y = generate_N_training_data_for_online_learning(num_samples, file_path, grid_size, density, discounted_step, grazing_walls=grazing, los_type=args.los_type, vision_radius=args.vision_radius, polygon_type = args.polygon_type, timeout=timeout)
 
     print(f"Generated {X.shape[0]} training samples with shape {X.shape[1:]} and labels with shape {y.shape[1:]}")
     save_data_to_disk(X, y, file_path + ".pt")
@@ -61,5 +63,5 @@ if __name__ == "__main__":
 # python run_data_generator.py --split train --type online --grazing --discounted_step 10 --num_samples 251
 #with grazing
 # python3 run_data_generator.py --split train --type online --grazing --discounted_step 10  --los_type square360 --vision_radius 8 --num_samples 251
-# without grazing
-# python3 run_data_generator.py --split train --type online --discounted_step 10  --los_type square360 --vision_radius 8 --num_samples 251
+# for simple polygons
+# python3 run_data_generator.py --split train --type online --grazing --discounted_step 10 --polygon_type simple --los_type los4 --num_samples 500
