@@ -51,6 +51,10 @@ def _solve_grid(grid, start, los_type = "los4", vision_radius = float('inf'), is
     solver = WRPSolverTSPJF(grid, start, los_type=los_type, vision_radius=vision_radius, is_for_training=is_for_training)
     return solve_wrp_tsp_jf(solver)
 
+def _solve_grid_subopt(grid, start, los_type = "los4", vision_radius = float('inf'), is_for_training = True):
+    solver = WRPSolverJF(grid, start, los_type=los_type, vision_radius=vision_radius, is_for_training=is_for_training)
+    return solve_wrp_jf(solver, weight=1, df=6, heuristic="tsp")
+
 
 def generate_N_training_data(num_samples, outPathFolder, grid_size=(16, 16), density=5, timeout=900):
     X_list = []

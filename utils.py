@@ -991,3 +991,22 @@ def plot_output_tensor(output_tensor):
 
 
 
+import matplotlib
+matplotlib.use("Agg")          # off-screen backend, no windows pop up
+import imageio.v2 as imageio
+
+def make_path_gif(grid, path, los_type, vision_radius, out="exploration.gif", fps=4):
+    frames = []
+    for step in range(1, len(path) + 1):       # step 1 .. full path
+        fig, ax = plt.subplots(figsize=(5, 5), dpi=100)
+        plot_visibility2(grid, path[:step], los_type=los_type,
+                         vision_radius=vision_radius, grazing_walls=True, ax=ax)
+        ax.set_title(f"Step {step}/{len(path)}")
+        fig.canvas.draw()
+        # grab the rendered RGBA buffer as an array
+        frame = np.asarray(fig.canvas.buffer_rgba())
+        frames.append(frame)
+        plt.close(fig)                          # free memory — important for long paths
+    imageio.mimsave(out, frames, fps=fps, loop=0)   # loop=0 = loop forever
+    print(f"Saved {out} with {len(frames)} frames")
+    return frames
