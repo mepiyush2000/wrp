@@ -40,7 +40,7 @@ if __name__ == "__main__":
         if (args.polygon_type == "simple"):
             grid, start = gen.generate_simple_polygon_grid()
         else:
-            grid, start = gen.generate_valid_grid(density=density)
+            grid, start = gen.generate_valid_grid(density=density, clutter_proba=0.5)
 
         try:
             path_opt, _ = run_with_timeout(_solve_grid, args=(grid, start, args.los_type, args.vision_radius, False), timeout=timeout)  
